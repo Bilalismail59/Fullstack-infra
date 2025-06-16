@@ -16,3 +16,9 @@ variable "gcp_credentials_file" {
 }
 
 
+
+variable "domain_name" {
+  description = "Domain name for the application"
+  type        = string
+  default     = "example.com"
+}
