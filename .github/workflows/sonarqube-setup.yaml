@@ -1,0 +1,248 @@
+name: Setup SonarQube Infrastructure
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/sonarqube-setup.yaml'
+
+env:
+  PROJECT_ID: primordial-port-462408-q7
+  CLUSTER_NAME: primordial-port-462408-q7-gke-cluster
+  CLUSTER_REGION: europe-west9
+
+jobs:
+  deploy-sonarqube:
+    runs-on: ubuntu-latest
+    name: Deploy SonarQube to Kubernetes
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.CLUSTER_REGION }}
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Add SonarQube Helm repository
+        run: |
+          helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
+          helm repo update
+
+      - name: Create SonarQube namespace
+        run: |
+          kubectl create namespace sonarqube --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy PostgreSQL for SonarQube
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: postgres-pv-claim
+            namespace: sonarqube
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
+            storageClassName: standard-rwo
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: postgres-secret
+            namespace: sonarqube
+          type: Opaque
+          data:
+            postgres-password: c29uYXJxdWJlMTIz  # sonarqube123 en base64
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: postgres
+            namespace: sonarqube
+          spec:
+            selector:
+              matchLabels:
+                app: postgres
+            template:
+              metadata:
+                labels:
+                  app: postgres
+              spec:
+                containers:
+                - name: postgres
+                  image: postgres:13
+                  env:
+                  - name: POSTGRES_DB
+                    value: sonarqube
+                  - name: POSTGRES_USER
+                    value: sonarqube
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: postgres-secret
+                        key: postgres-password
+                  ports:
+                  - containerPort: 5432
+                  volumeMounts:
+                  - name: postgres-storage
+                    mountPath: /var/lib/postgresql/data
+                  resources:
+                    requests:
+                      memory: "256Mi"
+                      cpu: "250m"
+                    limits:
+                      memory: "512Mi"
+                      cpu: "500m"
+                volumes:
+                - name: postgres-storage
+                  persistentVolumeClaim:
+                    claimName: postgres-pv-claim
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: postgres
+            namespace: sonarqube
+          spec:
+            ports:
+            - port: 5432
+            selector:
+              app: postgres
+          EOF
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          kubectl wait --for=condition=available --timeout=300s deployment/postgres -n sonarqube
+
+      - name: Deploy SonarQube
+        run: |
+          helm install sonarqube sonarqube/sonarqube \
+            --namespace sonarqube \
+            --set postgresql.enabled=false \
+            --set postgresql.postgresqlServer=postgres \
+            --set postgresql.postgresqlDatabase=sonarqube \
+            --set postgresql.postgresqlUsername=sonarqube \
+            --set postgresql.postgresqlPassword=sonarqube123 \
+            --set persistence.enabled=true \
+            --set persistence.size=10Gi \
+            --set resources.requests.memory=2Gi \
+            --set resources.requests.cpu=1000m \
+            --set resources.limits.memory=4Gi \
+            --set resources.limits.cpu=2000m \
+            --set service.type=ClusterIP \
+            --set ingress.enabled=false
+
+      - name: Create SonarQube IngressRoute
+        run: |
+          kubectl apply -f - <<EOF
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: sonarqube-ingressroute
+            namespace: sonarqube
+          spec:
+            entryPoints:
+              - web
+              - websecure
+            routes:
+            - match: Host(\`sonarqube.example.com\`)
+              kind: Rule
+              services:
+              - name: sonarqube-sonarqube
+                port: 9000
+            tls:
+              certResolver: letsencrypt
+          EOF
+
+      - name: Wait for SonarQube to be ready
+        run: |
+          kubectl wait --for=condition=available --timeout=600s deployment/sonarqube-sonarqube -n sonarqube
+
+      - name: Get SonarQube status
+        run: |
+          echo "SonarQube deployment status:"
+          kubectl get pods -n sonarqube
+          kubectl get services -n sonarqube
+          kubectl get ingressroute -n sonarqube
+          
+          echo "SonarQube access information:"
+          echo "Internal URL: http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
+          echo "External URL: https://sonarqube.example.com (via Traefik)"
+          echo "Default credentials: admin/admin"
+
+  configure-sonarqube:
+    runs-on: ubuntu-latest
+    needs: deploy-sonarqube
+    name: Configure SonarQube Projects
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.CLUSTER_REGION }}
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Wait for SonarQube to be fully ready
+        run: |
+          echo "Waiting for SonarQube to be fully operational..."
+          kubectl port-forward -n sonarqube svc/sonarqube-sonarqube 9000:9000 &
+          PF_PID=$!
+          sleep 30
+          
+          # Wait for SonarQube to respond
+          for i in {1..30}; do
+            if curl -s http://localhost:9000/api/system/status | grep -q "UP"; then
+              echo "SonarQube is ready!"
+              break
+            fi
+            echo "Waiting for SonarQube... ($i/30)"
+            sleep 10
+          done
+          
+          kill $PF_PID 2>/dev/null || true
+
+      - name: Create SonarQube projects
+        run: |
+          kubectl port-forward -n sonarqube svc/sonarqube-sonarqube 9000:9000 &
+          PF_PID=$!
+          sleep 10
+          
+          # Create frontend project
+          curl -X POST \
+            -u admin:admin \
+            -d "name=Frontend Application&project=frontend-app&visibility=public" \
+            http://localhost:9000/api/projects/create || echo "Frontend project may already exist"
+          
+          # Create backend project
+          curl -X POST \
+            -u admin:admin \
+            -d "name=Backend Application&project=backend-app&visibility=public" \
+            http://localhost:9000/api/projects/create || echo "Backend project may already exist"
+          
+          # Generate tokens (these would normally be done manually and stored as secrets)
+          echo "Projects created. Please manually generate tokens in SonarQube UI and add them to GitHub secrets:"
+          echo "- SONAR_TOKEN: Project analysis token"
+          echo "- SONAR_HOST_URL: http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000"
+          
+          kill $PF_PID 2>/dev/null || true
