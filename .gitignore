@@ -11,3 +11,10 @@ terraform.tfvars
 
 # Dépendances
 node_modules/
+
+# Terraform and sensitive files
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.json
+*credentials*
