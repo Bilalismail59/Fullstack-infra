@@ -1,0 +1,20 @@
+# sonarqube-values.yaml
+community:
+  enabled: true
+
+monitoringPasscode: "UnMotDePasseSecurise123!"
+
+postgresql:
+  enabled: false
+
+jdbc:
+  url: "jdbc:postgresql://${DB_IP}:5432/sonarqube"
+  username: "sonarqube_user"
+  password: "sonarqube123"
+
+persistence:
+  enabled: true
+  size: 10Gi
+
+service:
+  type: LoadBalancer
