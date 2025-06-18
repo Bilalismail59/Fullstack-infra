@@ -1,0 +1,491 @@
+version: '3.8'
+
+services:
+  # SERVICES PRINCIPAUX (PRODUCTION)
+  
+  # Frontend React Application
+  frontend:
+    build:
+      context: ./frontend-app
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=http://backend:5000
+    depends_on:
+      - backend
+    networks:
+      - fullstack-network
+    restart: unless-stopped
+    profiles:
+      - production
+      - full
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`localhost`) && PathPrefix(`/`)"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+
+  # Backend Flask API
+  backend:
+    build:
+      context: ./backend-app
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_URL=mysql://wordpress:wordpress@mysql:3306/wordpress
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - fullstack-network
+    restart: unless-stopped
+    profiles:
+      - production
+      - full
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`localhost`) && PathPrefix(`/api`)"
+      - "traefik.http.services.backend.loadbalancer.server.port=5000"
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - fullstack-network
+    restart: unless-stopped
+    profiles:
+      - production
+      - full
+    command: --default-authentication-plugin=mysql_native_password
+
+  # WordPress CMS
+  wordpress:
+    image: wordpress:latest
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: mysql:3306
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wordpress_data:/var/www/html
+    depends_on:
+      - mysql
+    networks:
+      - fullstack-network
+    restart: unless-stopped
+    profiles:
+      - production
+      - full
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - fullstack-network
+    restart: unless-stopped
+    profiles:
+      - production
+      - full
+    command: redis-server --appendonly yes
+
+  # Traefik Reverse Proxy
+  traefik:
+    image: traefik:v3.0
+    ports:
+      - "80:80"
+      - "8081:8080"
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - fullstack-network
+    restart: unless-stopped
+    profiles:
+      - production
+      - full
+  
+  # SERVICES DE DÉVELOPPEMENT
+
+  # Frontend Development
+  frontend-dev:
+    build:
+      context: ./frontend-app
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3001:3000"
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost:5001
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./frontend-app:/app
+      - /app/node_modules
+    networks:
+      - dev-network
+    restart: unless-stopped
+    profiles:
+      - development
+      - full
+
+  # Backend Development
+  backend-dev:
+    build:
+      context: ./backend-app
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5001:5000"
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+      - DATABASE_URL=mysql://dev:dev@mysql-dev:3306/devdb
+    volumes:
+      - ./backend-app:/app
+    depends_on:
+      - mysql-dev
+    networks:
+      - dev-network
+    restart: unless-stopped
+    profiles:
+      - development
+      - full
+
+  # MySQL Development
+  mysql-dev:
+    image: mysql:8.0
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: devroot
+      MYSQL_DATABASE: devdb
+      MYSQL_USER: dev
+      MYSQL_PASSWORD: dev
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+    networks:
+      - dev-network
+    restart: unless-stopped
+    profiles:
+      - development
+      - full
+
+  # Redis Development
+  redis-dev:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    networks:
+      - dev-network
+    restart: unless-stopped
+    profiles:
+      - development
+      - full
+
+  # MailHog pour les tests d'email
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - dev-network
+    restart: unless-stopped
+    profiles:
+      - development
+      - full
+  
+  # SERVICES DE MONITORING
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus-alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+      - full
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+      - full
+
+  # Alertmanager
+  alertmanager:
+    image: prom/alertmanager:latest
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./monitoring/alertmanager-config.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+      - full
+
+  # Node Exporter
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+      - full
+
+  # cAdvisor
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+      - full
+  
+  # SERVICES SONARQUBE
+
+  # SonarQube
+  sonarqube:
+    image: sonarqube:community
+    ports:
+      - "9000:9000"
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://postgres:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: true
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    depends_on:
+      - postgres
+    networks:
+      - sonarqube-network
+    restart: unless-stopped
+    profiles:
+      - sonarqube
+      - full
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # PostgreSQL pour SonarQube
+  postgres:
+    image: postgres:13
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sonarqube-network
+    restart: unless-stopped
+    profiles:
+      - sonarqube
+      - full
+  
+  # SERVICES DE TEST
+
+  # Frontend Test
+  frontend-test:
+    build:
+      context: ./frontend-app
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=test
+      - REACT_APP_API_URL=http://backend-test:5000
+    depends_on:
+      - backend-test
+    networks:
+      - test-network
+    profiles:
+      - test
+
+  # Backend Test
+  backend-test:
+    build:
+      context: ./backend-app
+      dockerfile: Dockerfile
+    environment:
+      - FLASK_ENV=testing
+      - DATABASE_URL=mysql://test:test@mysql-test:3306/testdb
+    depends_on:
+      - mysql-test
+    networks:
+      - test-network
+    profiles:
+      - test
+
+  # MySQL Test
+  mysql-test:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: testroot
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: test
+      MYSQL_PASSWORD: test
+    networks:
+      - test-network
+    profiles:
+      - test
+
+  # Test Runner
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./frontend-app:/app/frontend
+      - ./backend-app:/app/backend
+      - ./tests:/app/tests
+      - test_results:/app/results
+    environment:
+      - CI=true
+    depends_on:
+      - frontend-test
+      - backend-test
+    networks:
+      - test-network
+    profiles:
+      - test
+
+volumes:
+  # Production
+  mysql_data:
+    driver: local
+  wordpress_data:
+    driver: local
+  redis_data:
+    driver: local
+  
+  # Development
+  mysql_dev_data:
+    driver: local
+  
+  # Monitoring
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  
+  # SonarQube
+  sonarqube_data:
+    driver: local
+  sonarqube_extensions:
+    driver: local
+  sonarqube_logs:
+    driver: local
+  postgres_data:
+    driver: local
+  
+  # Test
+  test_results:
+    driver: local
+
+networks:
+  fullstack-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  
+  dev-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  
+  monitoring-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+  
+  sonarqube-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16
+  
+  test-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16
+
