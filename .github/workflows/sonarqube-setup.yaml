@@ -2,7 +2,6 @@
 name: Setup SonarQube Infrastructure
 
 on:
-  # yamllint disable-line rule:truthy
   workflow_dispatch:
   push:
     branches: ["main"]
@@ -12,10 +11,17 @@ env:
   PROJECT_ID: primordial-port-462408-q7
   CLUSTER_NAME: primordial-port-462408-q7-gke-cluster
   CLUSTER_REGION: europe-west9
+  POSTGRES_VERSION: "13"
+  SONARQUBE_CHART_VERSION: "9.9.1"
+  POSTGRES_STORAGE: "10Gi"
+  SONARQUBE_STORAGE: "10Gi"
 
 jobs:
   deploy-sonarqube:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      sonar_url: ${{ steps.get-url.outputs.url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,8 +38,161 @@ jobs:
           location: ${{ env.CLUSTER_REGION }}
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Add SonarQube Helm repository
+      - name: Add Helm repositories
         run: |
-          helm repo add sonarqube \
-            https://SonarSource.github.io/helm-chart-sonarqube
+          helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
           helm repo update
+
+      - name: Create namespace
+        run: kubectl create ns sonarqube --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy PostgreSQL
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: postgres-pv-claim
+            namespace: sonarqube
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: ${{ env.POSTGRES_STORAGE }}
+            storageClassName: standard-rwo
+          ---
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: postgres-secret
+            namespace: sonarqube
+          type: Opaque
+          data:
+            postgres-password: $(echo -n "$POSTGRES_PASSWORD" | base64 -w0)
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: postgres
+            namespace: sonarqube
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: postgres
+            template:
+              metadata:
+                labels:
+                  app: postgres
+              spec:
+                containers:
+                - name: postgres
+                  image: postgres:${{ env.POSTGRES_VERSION }}
+                  env:
+                  - name: POSTGRES_DB
+                    value: sonarqube
+                  - name: POSTGRES_USER
+                    value: sonarqube
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                      secretKeyRef:
+                        name: postgres-secret
+                        key: postgres-password
+                  ports:
+                  - containerPort: 5432
+                  volumeMounts:
+                  - name: postgres-storage
+                    mountPath: /var/lib/postgresql/data
+                  livenessProbe:
+                    exec:
+                      command: ["pg_isready", "-U", "sonarqube"]
+                    initialDelaySeconds: 30
+                    periodSeconds: 10
+                  resources:
+                    requests:
+                      memory: "256Mi"
+                      cpu: "250m"
+                    limits:
+                      memory: "512Mi"
+                      cpu: "500m"
+                volumes:
+                - name: postgres-storage
+                  persistentVolumeClaim:
+                    claimName: postgres-pv-claim
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: postgres
+            namespace: sonarqube
+          spec:
+            ports:
+            - port: 5432
+            selector:
+              app: postgres
+          EOF
+
+      - name: Wait for PostgreSQL
+        run: kubectl wait --for=condition=available --timeout=300s deployment/postgres -n sonarqube
+
+      - name: Deploy SonarQube
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          helm upgrade --install sonarqube sonarqube/sonarqube \
+            --namespace sonarqube \
+            --version ${{ env.SONARQUBE_CHART_VERSION }} \
+            --set postgresql.enabled=false \
+            --set postgresql.postgresqlServer=postgres.sonarqube.svc.cluster.local \
+            --set postgresql.postgresqlDatabase=sonarqube \
+            --set postgresql.postgresqlUsername=sonarqube \
+            --set postgresql.postgresqlPassword=$POSTGRES_PASSWORD \
+            --set persistence.enabled=true \
+            --set persistence.size=${{ env.SONARQUBE_STORAGE }} \
+            --set service.type=LoadBalancer \
+            --set resources.requests.memory=2Gi \
+            --set resources.requests.cpu=1000m \
+            --set resources.limits.memory=4Gi \
+            --set resources.limits.cpu=2000m
+
+      - name: Get SonarQube URL
+        id: get-url
+        run: |
+          SONAR_IP=$(kubectl get svc sonarqube-sonarqube -n sonarqube -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "url=http://$SONAR_IP:9000" >> $GITHUB_OUTPUT
+          echo "SonarQube URL: http://$SONAR_IP:9000"
+
+  configure-sonarqube:
+    runs-on: ubuntu-latest
+    needs: deploy-sonarqube
+    steps:
+      - name: Configure projects
+        env:
+          SONAR_URL: ${{ needs.deploy-sonarqube.outputs.sonar_url }}
+          SONAR_ADMIN_PASSWORD: ${{ secrets.SONAR_ADMIN_PASSWORD }}
+        run: |
+          # Wait for SonarQube to be ready
+          for i in {1..30}; do
+            if curl -sSf "$SONAR_URL/api/system/health" | grep -q "GREEN"; then
+              echo "SonarQube is ready"
+              break
+            fi
+            echo "Waiting for SonarQube to be ready... ($i/30)"
+            sleep 10
+          done
+
+          # Change admin password
+          curl -X POST "$SONAR_URL/api/users/change_password" \
+            -u "admin:admin" \
+            -d "login=admin&password=$SONAR_ADMIN_PASSWORD&previousPassword=admin"
+
+          # Create projects
+          curl -X POST "$SONAR_URL/api/projects/create" \
+            -u "admin:$SONAR_ADMIN_PASSWORD" \
+            -d "name=Frontend&project=frontend&visibility=public"
+          
+          curl -X POST "$SONAR_URL/api/projects/create" \
+            -u "admin:$SONAR_ADMIN_PASSWORD" \
+            -d "name=Backend&project=backend&visibility=public"

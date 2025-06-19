@@ -1,21 +1,27 @@
-FROM node:20-alpine
+# Build stage
+FROM node:20-alpine as builder
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+# Installation des dépendances de build
+RUN apk add --no-cache git python3 make g++
 
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml ./
+RUN npm install -g pnpm && \
+    pnpm install --frozen-lockfile --prod
 
 COPY . .
-
 RUN pnpm run build
 
-FROM nginx:alpine
+# Production stage
+FROM nginxinc/nginx-unprivileged:alpine
 
-COPY --from=0 /app/dist /usr/share/nginx/html
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+# Suppression des fichiers inutiles
+RUN rm -rf /usr/share/nginx/html/*.map
 
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 8080
 
-
+USER nginx
