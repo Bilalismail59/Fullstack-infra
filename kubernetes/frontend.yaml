@@ -19,6 +19,13 @@ spec:
         image: europe-west9-docker.pkg.dev/primordial-port-462408-q7/docker-repo/frontend-app:latest
         ports:
         - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "250m"
+          limits:
+           memory: "128Mi"
+           cpu: "500m"   
 ---
 apiVersion: v1
 kind: Service
