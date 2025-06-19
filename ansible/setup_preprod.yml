@@ -1,0 +1,78 @@
+---
+- name: Common Server Setup for Preprod
+  hosts: frontend_preprod, backend_preprod, database_preprod
+  become: true
+  tasks:
+    - name: Update apt cache and upgrade packages
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install UFW
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+
+    - name: Allow SSH (port 22)
+      community.general.ufw:
+        rule: allow
+        port: 22
+        proto: tcp
+
+    - name: Allow HTTP (port 80)
+      community.general.ufw:
+        rule: allow
+        port: 80
+        proto: tcp
+
+    - name: Allow HTTPS (port 443)
+      community.general.ufw:
+        rule: allow
+        port: 443
+        proto: tcp
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    - name: Install Fail2Ban
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+
+    - name: Ensure Fail2Ban is running and enabled
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: yes
+
+    - name: Disable root SSH login
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: ".*PermitRootLogin"
+        line: "PermitRootLogin no"
+        state: present
+
+    - name: Ensure SSH password authentication is disabled
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: ".*PasswordAuthentication"
+        line: "PasswordAuthentication no"
+        state: present
+
+    - name: Restart SSH service
+      ansible.builtin.service:
+        name: ssh
+        state: restarted
+
+    - name: Configure automatic security updates
+      ansible.builtin.apt:
+        name: unattended-upgrades
+        state: present
+
+    - name: Enable unattended-upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";

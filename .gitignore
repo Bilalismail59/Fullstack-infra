@@ -1,0 +1,21 @@
+# Fichiers sensibles Terraform
+*.json
+*.tfstate
+*.tfstate.backup
+.terraform/
+terraform.tfvars
+
+# Fichiers d'environnement
+.env
+*.key
+
+# Dépendances
+node_modules/
+
+# Terraform and sensitive files
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.json
+*credentials*
+backend-app/venv/

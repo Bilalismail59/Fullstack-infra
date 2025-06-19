@@ -1,0 +1,61 @@
+# Dockerfile pour les tests
+FROM node:18-alpine as frontend-test
+
+WORKDIR /app/frontend
+COPY frontend-app/package*.json ./
+RUN npm install
+COPY frontend-app/ ./
+
+FROM python:3.11-slim as backend-test
+
+WORKDIR /app/backend
+
+# Installer les dépendances système
+RUN apt-get update && apt-get install -y \
+    gcc \
+    default-libmysqlclient-dev \
+    pkg-config \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend-app/requirements.txt .
+RUN pip install -r requirements.txt
+RUN pip install pytest pytest-cov selenium requests
+
+COPY backend-app/ ./
+
+# Image finale pour les tests
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Installer Node.js pour les tests frontend
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
+
+# Installer les dépendances système
+RUN apt-get update && apt-get install -y \
+    gcc \
+    default-libmysqlclient-dev \
+    pkg-config \
+    chromium \
+    chromium-driver \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copier les applications depuis les stages précédents
+COPY --from=frontend-test /app/frontend /app/frontend
+COPY --from=backend-test /app/backend /app/backend
+
+# Installer les dépendances de test
+COPY tests/requirements.txt /app/tests/
+RUN pip install -r /app/tests/requirements.txt
+
+# Copier les tests
+COPY tests/ /app/tests/
+
+# Variables d'environnement pour les tests
+ENV PYTHONPATH=/app/backend
+ENV CI=true
+
+# Script de test par défaut
+CMD ["python", "-m", "pytest", "/app/tests/", "-v", "--tb=short"]

@@ -1,0 +1,89 @@
+services:
+  # Frontend Test
+  frontend-test:
+    build:
+      context: ./frontend-app
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=test
+      - REACT_APP_API_URL=http://backend-test:5000
+    depends_on:
+      - backend-test
+    networks:
+      - test-network
+    profiles:
+      - test
+
+  # Backend Test
+  backend-test:
+    build:
+      context: ./backend-app
+      dockerfile: Dockerfile
+    environment:
+      - FLASK_ENV=testing
+      - DATABASE_URL=mysql://test:test@mysql-test:3306/testdb
+    depends_on:
+      - mysql-test
+    networks:
+      - test-network
+    profiles:
+      - test
+
+  # MySQL Test
+  mysql-test:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: testroot
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: test
+      MYSQL_PASSWORD: test
+    volumes:
+      - ./tests/sql:/docker-entrypoint-initdb.d
+    networks:
+      - test-network
+    profiles:
+      - test
+
+  # Test Runner
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./frontend-app:/app/frontend
+      - ./backend-app:/app/backend
+      - ./tests:/app/tests
+      - test_results:/app/results
+    environment:
+      - CI=true
+      - FRONTEND_URL=http://frontend-test:80
+      - BACKEND_URL=http://backend-test:5000
+    depends_on:
+      - frontend-test
+      - backend-test
+    networks:
+      - test-network
+    profiles:
+      - test
+    command: |
+      sh -c "
+        echo 'Running Frontend Tests...'
+        cd /app/frontend && npm test -- --coverage --watchAll=false
+        
+        echo 'Running Backend Tests...'
+        cd /app/backend && python -m pytest --cov=src --cov-report=html
+        
+        echo 'Running Integration Tests...'
+        cd /app/tests && python -m pytest integration/
+        
+        echo 'Running E2E Tests...'
+        cd /app/tests && python -m pytest e2e/
+      "
+
+volumes:
+  test_results:
+    driver: local
+
+networks:
+  test-network:
+    driver: bridge
