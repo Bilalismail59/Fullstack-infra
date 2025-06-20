@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 45
     outputs:
       sonar_url: ${{ steps.get-url.outputs.url }}
+      monitoring_passcode: ${{ steps.deploy-sonar.outputs.passcode }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -43,50 +44,44 @@ jobs:
           helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
           helm repo update
 
-      - name: Create namespace and cleanup old resources
+      - name: Create namespace and verify existing resources
         run: |
-          echo " Nettoyage et création du namespace..."
+          echo " Préparation du namespace..."
           kubectl create ns sonarqube --dry-run=client -o yaml | kubectl apply -f -
           
-          # Nettoyer les anciens déploiements et PVCs
-          echo "Suppression des anciens déploiements..."
+          echo " État des ressources existantes:"
+          kubectl get pvc -n sonarqube || echo "Aucun PVC trouvé"
+          kubectl get pods -n sonarqube || echo "Aucun pod trouvé"
+          
+          # Nettoyer seulement les déploiements, garder les PVCs
+          echo " Nettoyage des déploiements existants..."
           kubectl delete deployment postgres sonarqube --ignore-not-found=true -n sonarqube
           
-          echo "Suppression des anciens PVCs..."
-          kubectl delete pvc postgres-pv-claim postgres-pv-claim-new sonarqube-data sonarqube-data-new --ignore-not-found=true -n sonarqube
-          
-          echo "Attente du nettoyage..."
-          sleep 30
-          
-          echo "État après nettoyage:"
-          kubectl get pvc -n sonarqube || echo "Aucun PVC trouvé"
+          echo " Attente du nettoyage..."
+          sleep 15
 
-      - name: Deploy PostgreSQL with unique PVC name
+      - name: Deploy PostgreSQL with existing PVC (NO QUOTA ISSUES)
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
-          # Générer un nom unique pour le PVC
-          TIMESTAMP=$(date +%s)
-          PVC_NAME="postgres-pvc-${TIMESTAMP}"
+          echo " Recherche d'un PVC PostgreSQL existant..."
           
-          echo " Création du PVC PostgreSQL: $PVC_NAME"
+          # Chercher un PVC PostgreSQL existant et lié
+          EXISTING_PVC=$(kubectl get pvc -n sonarqube -o jsonpath='{.items[?(@.status.phase=="Bound")].metadata.name}' | tr ' ' '\n' | grep -E '^postgres-pvc-' | head -1 || echo "")
+          
+          if [ -n "$EXISTING_PVC" ]; then
+            echo " PVC existant trouvé: $EXISTING_PVC"
+            PVC_NAME="$EXISTING_PVC"
+          else
+            echo " Aucun PVC PostgreSQL existant trouvé"
+            echo " PVCs disponibles:"
+            kubectl get pvc -n sonarqube
+            exit 1
+          fi
+          
+          echo " Déploiement PostgreSQL avec PVC existant: $PVC_NAME"
           
           cat <<EOF | kubectl apply -f -
-          apiVersion: v1
-          kind: PersistentVolumeClaim
-          metadata:
-            name: $PVC_NAME
-            namespace: sonarqube
-            labels:
-              app: postgres
-              timestamp: "$TIMESTAMP"
-          spec:
-            accessModes: [ReadWriteOnce]
-            resources:
-              requests:
-                storage: ${{ env.POSTGRES_STORAGE }}
-            storageClassName: standard-rwo
-          ---
           apiVersion: v1
           kind: Secret
           metadata:
@@ -103,7 +98,6 @@ jobs:
             namespace: sonarqube
             labels:
               app: postgres
-              timestamp: "$TIMESTAMP"
           spec:
             replicas: 1
             selector:
@@ -113,7 +107,6 @@ jobs:
               metadata:
                 labels:
                   app: postgres
-                  timestamp: "$TIMESTAMP"
               spec:
                 containers:
                 - name: postgres
@@ -189,93 +182,35 @@ jobs:
           # Sauvegarder le nom du PVC pour les étapes suivantes
           echo "PVC_NAME=$PVC_NAME" >> $GITHUB_ENV
 
-      - name: Wait for PostgreSQL PVC with enhanced monitoring
+      - name: Wait for PostgreSQL to be ready
         run: |
-          echo " Attente du PVC PostgreSQL: $PVC_NAME"
+          echo " Attente de PostgreSQL..."
           
-          # Vérifier l'état initial
-          echo "=== État initial ==="
-          kubectl get pvc -n sonarqube
-          kubectl get storageclass
+          # Attendre que le pod soit prêt
+          kubectl wait --for=condition=available deployment/postgres -n sonarqube --timeout=300s
           
-          # Attendre que le PVC soit lié avec monitoring détaillé
-          for i in {1..20}; do
-            echo "--- Vérification PVC $i/20 ---"
-            
-            PVC_STATUS=$(kubectl get pvc $PVC_NAME -n sonarqube -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
-            echo "Statut PVC: $PVC_STATUS"
-            
-            if [ "$PVC_STATUS" = "Bound" ]; then
-              echo " PVC $PVC_NAME est lié!"
-              kubectl describe pvc $PVC_NAME -n sonarqube
-              break
-            fi
-            
-            if [ $i -eq 20 ]; then
-              echo " Timeout PVC après 10 minutes"
-              echo "=== Diagnostic PVC ==="
-              kubectl describe pvc $PVC_NAME -n sonarqube
-              kubectl get events -n sonarqube --sort-by='.lastTimestamp' | tail -10
-              exit 1
-            fi
-            
-            # Afficher les détails toutes les 5 tentatives
-            if [ $((i % 5)) -eq 0 ]; then
-              echo "=== Détails PVC ==="
-              kubectl describe pvc $PVC_NAME -n sonarqube | tail -10
-              echo "=== Événements récents ==="
-              kubectl get events -n sonarqube --sort-by='.lastTimestamp' | tail -5
-            fi
-            
-            sleep 30
-          done
-
-      - name: Wait for PostgreSQL Pod with enhanced monitoring
-        run: |
-          echo " Attente du pod PostgreSQL..."
-          
-          # Surveiller le démarrage du pod
-          for i in {1..30}; do
-            echo "--- Vérification Pod $i/30 ---"
-            kubectl get pods -n sonarqube -l app=postgres -o wide
-            
-            if kubectl get pods -n sonarqube -l app=postgres | grep -q "1/1.*Running"; then
-              echo " PostgreSQL est prêt!"
-              break
-            fi
-            
-            # Vérifier s'il y a des erreurs
-            POD_NAME=$(kubectl get pods -n sonarqube -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-            if [ -n "$POD_NAME" ]; then
-              POD_STATUS=$(kubectl get pod $POD_NAME -n sonarqube -o jsonpath='{.status.phase}')
-              echo "Statut Pod: $POD_STATUS"
-              
-              # Afficher les logs si le pod existe
-              if [ "$POD_STATUS" != "Pending" ] && [ $((i % 5)) -eq 0 ]; then
-                echo "=== Logs PostgreSQL ==="
-                kubectl logs $POD_NAME -n sonarqube --tail=5 2>/dev/null || echo "Pas de logs encore"
-              fi
-            fi
-            
-            if [ $i -eq 30 ]; then
-              echo " Timeout PostgreSQL après 10 minutes"
-              kubectl describe pods -n sonarqube -l app=postgres
-              kubectl logs -l app=postgres -n sonarqube --tail=20 2>/dev/null || echo "Pas de logs"
-              exit 1
-            fi
-            
-            sleep 20
-          done
-          
-          # Test de connexion final
+          # Vérifier que PostgreSQL répond
           echo " Test de connexion PostgreSQL..."
-          kubectl exec -n sonarqube deployment/postgres -- pg_isready -U sonarqube -d sonarqube
+          for i in {1..10}; do
+            if kubectl exec -n sonarqube deployment/postgres -- pg_isready -U sonarqube -d sonarqube; then
+              echo " PostgreSQL est opérationnel!"
+              break
+            fi
+            echo "Attente de PostgreSQL... ($i/10)"
+            sleep 10
+          done
 
-      - name: Deploy SonarQube with corrected version
+      - name: Deploy SonarQube with all fixes
+        id: deploy-sonar
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
+          # Générer un passcode de monitoring unique
+          MONITORING_PASSCODE="monitoring-$(date +%s)-$(openssl rand -hex 4)"
+          echo "passcode=$MONITORING_PASSCODE" >> $GITHUB_OUTPUT
+          
           echo " Déploiement SonarQube version ${{ env.SONARQUBE_CHART_VERSION }}..."
+          echo " Passcode de monitoring: $MONITORING_PASSCODE"
           
           helm upgrade --install sonarqube sonarqube/sonarqube \
             --namespace sonarqube \
@@ -293,7 +228,7 @@ jobs:
             --set resources.limits.memory=2Gi \
             --set resources.limits.cpu=1000m \
             --set sonarProperties."sonar\.es\.bootstrap\.checks\.disable"=true \
-            --set monitoringPasscode="monitoring-$(date +%s)" 
+            --set monitoringPasscode="$MONITORING_PASSCODE" \
             --timeout 15m \
             --wait
 
@@ -305,7 +240,7 @@ jobs:
           kubectl wait --for=condition=available deployment/sonarqube-sonarqube -n sonarqube --timeout=900s
           
           # Attendre que l'IP externe soit assignée
-          echo "Attente de l'IP externe..."
+          echo " Attente de l'IP externe..."
           for i in {1..20}; do
             SONAR_IP=$(kubectl get svc sonarqube-sonarqube -n sonarqube -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
             if [ -n "$SONAR_IP" ]; then
@@ -330,11 +265,33 @@ jobs:
           for i in {1..20}; do
             if curl -sSf "$SONAR_URL/api/system/status" | grep -q "UP\|STARTING"; then
               echo " SonarQube répond!"
+              curl -s "$SONAR_URL/api/system/status" | jq '.' 2>/dev/null || curl -s "$SONAR_URL/api/system/status"
               break
             fi
             echo "Attente de SonarQube... ($i/20)"
             sleep 30
           done
+
+      - name: Display deployment summary
+        env:
+          SONAR_URL: ${{ steps.get-url.outputs.url }}
+          MONITORING_PASSCODE: ${{ steps.deploy-sonar.outputs.passcode }}
+        run: |
+          echo " DÉPLOIEMENT SONARQUBE TERMINÉ AVEC SUCCÈS!"
+          echo "============================================="
+          echo ""
+          echo " Informations de déploiement:"
+          echo "• Version SonarQube: ${{ env.SONARQUBE_CHART_VERSION }}"
+          echo "• URL: $SONAR_URL"
+          echo "• Identifiants par défaut: admin / admin"
+          echo "• Passcode de monitoring: $MONITORING_PASSCODE"
+          echo ""
+          echo " État des services:"
+          kubectl get pods -n sonarqube
+          kubectl get svc -n sonarqube
+          kubectl get pvc -n sonarqube
+          echo ""
+          echo " SonarQube est prêt pour la configuration des projets!"
 
   configure-sonarqube:
     runs-on: ubuntu-latest
@@ -345,6 +302,7 @@ jobs:
         env:
           SONAR_URL: ${{ needs.deploy-sonarqube.outputs.sonar_url }}
           SONAR_ADMIN_PASSWORD: ${{ secrets.SONAR_ADMIN_PASSWORD }}
+          MONITORING_PASSCODE: ${{ needs.deploy-sonarqube.outputs.monitoring_passcode }}
         run: |
           echo " Configuration de SonarQube..."
           
@@ -377,6 +335,14 @@ jobs:
             -d "name=Backend&project=backend&visibility=public" \
             --fail-with-body || echo " Projet backend existe déjà"
           
+          echo ""
           echo " Configuration terminée!"
+          echo "========================="
           echo " SonarQube accessible à: $SONAR_URL"
           echo " Identifiants: admin / $SONAR_ADMIN_PASSWORD"
+          echo " Passcode de monitoring: $MONITORING_PASSCODE"
+          echo ""
+          echo " Projets créés:"
+          echo "• Frontend (clé: frontend)"
+          echo "• Backend (clé: backend)"
+
