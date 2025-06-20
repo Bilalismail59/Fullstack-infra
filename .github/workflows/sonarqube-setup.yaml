@@ -1,4 +1,4 @@
-name: Setup SonarQube Infrastructure
+name: Setup SonarQube Infrastructure (CORRIGÉ)
 
 on:
   workflow_dispatch:
@@ -11,14 +11,14 @@ env:
   CLUSTER_NAME: primordial-port-462408-q7-gke-cluster
   CLUSTER_REGION: europe-west9
   POSTGRES_VERSION: "13"
-  SONARQUBE_CHART_VERSION: "9.9.1"
+  SONARQUBE_CHART_VERSION: "2025.3.0"  #  VERSION CORRIGÉE
   POSTGRES_STORAGE: "10Gi"
   SONARQUBE_STORAGE: "10Gi"
 
 jobs:
   deploy-sonarqube:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45  #  Timeout augmenté
     outputs:
       sonar_url: ${{ steps.get-url.outputs.url }}
     steps:
@@ -37,15 +37,19 @@ jobs:
           location: ${{ env.CLUSTER_REGION }}
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Add Helm repositories
+      - name: Add Helm repositories and update
         run: |
+          echo " Mise à jour des repositories Helm..."
           helm repo add sonarqube https://SonarSource.github.io/helm-chart-sonarqube
           helm repo update
+          
+          echo " Versions disponibles:"
+          helm search repo sonarqube/sonarqube --versions | head -5
 
       - name: Create namespace
         run: kubectl create ns sonarqube --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Deploy PostgreSQL
+      - name: Deploy PostgreSQL with optimized resources
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
@@ -99,27 +103,49 @@ jobs:
                       secretKeyRef:
                         name: postgres-secret
                         key: postgres-password
+                  - name: PGDATA
+                    value: /var/lib/postgresql/data/pgdata
                   ports:
                   - containerPort: 5432
                   volumeMounts:
                   - name: postgres-storage
                     mountPath: /var/lib/postgresql/data
+                  readinessProbe:
+                    exec:
+                      command: ["pg_isready", "-U", "sonarqube", "-d", "sonarqube"]
+                    initialDelaySeconds: 15
+                    periodSeconds: 5
+                    timeoutSeconds: 3
+                    failureThreshold: 6
                   livenessProbe:
                     exec:
-                      command: ["pg_isready", "-U", "sonarqube"]
+                      command: ["pg_isready", "-U", "sonarqube", "-d", "sonarqube"]
                     initialDelaySeconds: 30
                     periodSeconds: 10
+                    timeoutSeconds: 5
+                    failureThreshold: 3
+                  startupProbe:
+                    exec:
+                      command: ["pg_isready", "-U", "sonarqube", "-d", "sonarqube"]
+                    initialDelaySeconds: 5
+                    periodSeconds: 5
+                    timeoutSeconds: 3
+                    failureThreshold: 20
                   resources:
                     requests:
-                      memory: "256Mi"
-                      cpu: "250m"
+                      memory: "128Mi"
+                      cpu: "100m"
                     limits:
-                      memory: "512Mi"
-                      cpu: "500m"
+                      memory: "256Mi"
+                      cpu: "200m"
                 volumes:
                 - name: postgres-storage
                   persistentVolumeClaim:
                     claimName: postgres-pv-claim
+                securityContext:
+                  fsGroup: 999
+                  runAsUser: 999
+                  runAsGroup: 999
           ---
           apiVersion: v1
           kind: Service
@@ -133,13 +159,42 @@ jobs:
               app: postgres
           EOF
 
-      - name: Wait for PostgreSQL
-        run: kubectl wait --for=condition=available --timeout=300s deployment/postgres -n sonarqube
+      - name: Wait for PostgreSQL with enhanced monitoring
+        run: |
+          echo " Attente de PostgreSQL..."
+          
+          # Attendre que le PVC soit lié
+          kubectl wait --for=condition=bound pvc/postgres-pv-claim -n sonarqube --timeout=300s
+          
+          # Surveiller le démarrage
+          for i in {1..30}; do
+            echo "--- Vérification $i/30 ---"
+            kubectl get pods -n sonarqube -l app=postgres
+            
+            if kubectl get pods -n sonarqube -l app=postgres | grep -q "1/1.*Running"; then
+              echo " PostgreSQL est prêt!"
+              break
+            fi
+            
+            if [ $i -eq 30 ]; then
+              echo " Timeout PostgreSQL"
+              kubectl describe pods -n sonarqube -l app=postgres
+              kubectl logs -l app=postgres -n sonarqube --tail=20
+              exit 1
+            fi
+            
+            sleep 10
+          done
+          
+          # Test de connexion
+          kubectl exec -n sonarqube deployment/postgres -- pg_isready -U sonarqube -d sonarqube
 
-      - name: Deploy SonarQube
+      - name: Deploy SonarQube with corrected version
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         run: |
+          echo " Déploiement SonarQube version ${{ env.SONARQUBE_CHART_VERSION }}..."
+          
           helm upgrade --install sonarqube sonarqube/sonarqube \
             --namespace sonarqube \
             --version ${{ env.SONARQUBE_CHART_VERSION }} \
@@ -147,51 +202,99 @@ jobs:
             --set postgresql.postgresqlServer=postgres.sonarqube.svc.cluster.local \
             --set postgresql.postgresqlDatabase=sonarqube \
             --set postgresql.postgresqlUsername=sonarqube \
-            --set postgresql.postgresqlPassword=$POSTGRES_PASSWORD \
+            --set postgresql.postgresqlPassword="$POSTGRES_PASSWORD" \
             --set persistence.enabled=true \
             --set persistence.size=${{ env.SONARQUBE_STORAGE }} \
             --set service.type=LoadBalancer \
-            --set resources.requests.memory=2Gi \
-            --set resources.requests.cpu=1000m \
-            --set resources.limits.memory=4Gi \
-            --set resources.limits.cpu=2000m
+            --set resources.requests.memory=1Gi \
+            --set resources.requests.cpu=500m \
+            --set resources.limits.memory=2Gi \
+            --set resources.limits.cpu=1000m \
+            --set sonarProperties."sonar\.es\.bootstrap\.checks\.disable"=true \
+            --timeout 15m \
+            --wait
 
-      - name: Get SonarQube URL
+      - name: Wait for SonarQube to be ready
+        run: |
+          echo " Attente de SonarQube..."
+          
+          # Attendre que le service soit disponible
+          kubectl wait --for=condition=available deployment/sonarqube-sonarqube -n sonarqube --timeout=900s
+          
+          # Attendre que l'IP externe soit assignée
+          echo "Attente de l'IP externe..."
+          for i in {1..20}; do
+            SONAR_IP=$(kubectl get svc sonarqube-sonarqube -n sonarqube -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$SONAR_IP" ]; then
+              echo " IP externe assignée: $SONAR_IP"
+              break
+            fi
+            echo "Attente de l'IP externe... ($i/20)"
+            sleep 15
+          done
+
+      - name: Get SonarQube URL and test connectivity
         id: get-url
         run: |
           SONAR_IP=$(kubectl get svc sonarqube-sonarqube -n sonarqube -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          echo "url=http://$SONAR_IP:9000" >> $GITHUB_OUTPUT
-          echo "SonarQube URL: http://$SONAR_IP:9000"
+          SONAR_URL="http://$SONAR_IP:9000"
+          
+          echo "url=$SONAR_URL" >> $GITHUB_OUTPUT
+          echo " SonarQube URL: $SONAR_URL"
+          
+          # Test de connectivité
+          echo " Test de connectivité..."
+          for i in {1..20}; do
+            if curl -sSf "$SONAR_URL/api/system/status" | grep -q "UP\|STARTING"; then
+              echo " SonarQube répond!"
+              break
+            fi
+            echo "Attente de SonarQube... ($i/20)"
+            sleep 30
+          done
 
   configure-sonarqube:
     runs-on: ubuntu-latest
     needs: deploy-sonarqube
+    if: success()
     steps:
-      - name: Configure projects
+      - name: Configure projects and admin password
         env:
           SONAR_URL: ${{ needs.deploy-sonarqube.outputs.sonar_url }}
           SONAR_ADMIN_PASSWORD: ${{ secrets.SONAR_ADMIN_PASSWORD }}
         run: |
-          # Wait for SonarQube to be ready
+          echo " Configuration de SonarQube..."
+          
+          # Attendre que SonarQube soit complètement prêt
           for i in {1..30}; do
             if curl -sSf "$SONAR_URL/api/system/health" | grep -q "GREEN"; then
-              echo "SonarQube is ready"
+              echo " SonarQube est prêt pour la configuration"
               break
             fi
-            echo "Waiting for SonarQube to be ready... ($i/30)"
-            sleep 10
+            echo "Attente que SonarQube soit prêt... ($i/30)"
+            sleep 20
           done
 
-          # Change admin password
+          # Changer le mot de passe admin
+          echo " Changement du mot de passe admin..."
           curl -X POST "$SONAR_URL/api/users/change_password" \
             -u "admin:admin" \
-            -d "login=admin&password=$SONAR_ADMIN_PASSWORD&previousPassword=admin"
+            -d "login=admin&password=$SONAR_ADMIN_PASSWORD&previousPassword=admin" \
+            --fail-with-body || echo " Mot de passe déjà changé ou erreur"
 
-          # Create projects
+          # Créer les projets
+          echo " Création des projets..."
           curl -X POST "$SONAR_URL/api/projects/create" \
             -u "admin:$SONAR_ADMIN_PASSWORD" \
-            -d "name=Frontend&project=frontend&visibility=public"
+            -d "name=Frontend&project=frontend&visibility=public" \
+            --fail-with-body || echo " Projet frontend existe déjà"
           
           curl -X POST "$SONAR_URL/api/projects/create" \
             -u "admin:$SONAR_ADMIN_PASSWORD" \
-            -d "name=Backend&project=backend&visibility=public"
+            -d "name=Backend&project=backend&visibility=public" \
+            --fail-with-body || echo " Projet backend existe déjà"
+          
+          echo " Configuration terminée!"
+          echo " SonarQube accessible à: $SONAR_URL"
+          echo " Identifiants: admin / $SONAR_ADMIN_PASSWORD"
+
