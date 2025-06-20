@@ -1,4 +1,4 @@
-name: Setup SonarQube Infrastructure (PVC FIXED)
+name: Setup SonarQube Infrastructure
 
 on:
   workflow_dispatch:
@@ -293,6 +293,7 @@ jobs:
             --set resources.limits.memory=2Gi \
             --set resources.limits.cpu=1000m \
             --set sonarProperties."sonar\.es\.bootstrap\.checks\.disable"=true \
+            --set monitoringPasscode="monitoring-$(date +%s)" \  
             --timeout 15m \
             --wait
 
