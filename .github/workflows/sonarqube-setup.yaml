@@ -229,6 +229,7 @@ jobs:
             --set resources.limits.cpu=1000m \
             --set sonarProperties."sonar\.es\.bootstrap\.checks\.disable"=true \
             --set monitoringPasscode="$MONITORING_PASSCODE" \
+            --set community.enabled=true \  
             --timeout 15m \
             --wait
 
