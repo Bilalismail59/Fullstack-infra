@@ -1,4 +1,4 @@
-name: Setup SonarQube Infrastructure
+name: Setup SonarQube Infrastructure (TIMEOUT OPTIMIZED)
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ env:
 jobs:
   deploy-sonarqube:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60  # Augmenté de 45 à 60 minutes
     outputs:
       sonar_url: ${{ steps.get-url.outputs.url }}
       monitoring_passcode: ${{ steps.deploy-sonar.outputs.passcode }}
@@ -200,7 +200,7 @@ jobs:
             sleep 10
           done
 
-      - name: Deploy SonarQube with all fixes
+      - name: Deploy SonarQube with extended timeout
         id: deploy-sonar
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -211,6 +211,7 @@ jobs:
           
           echo " Déploiement SonarQube version ${{ env.SONARQUBE_CHART_VERSION }}..."
           echo " Passcode de monitoring: $MONITORING_PASSCODE"
+          echo " Timeout étendu: 45 minutes"
           
           helm upgrade --install sonarqube sonarqube/sonarqube \
             --namespace sonarqube \
@@ -230,29 +231,44 @@ jobs:
             --set sonarProperties."sonar\.es\.bootstrap\.checks\.disable"=true \
             --set monitoringPasscode="$MONITORING_PASSCODE" \
             --set community.enabled=true \
-            --timeout 15m \
+            --timeout 45m \
             --wait
 
-      - name: Wait for SonarQube to be ready
+      - name: Monitor SonarQube startup progress
         run: |
-          echo " Attente de SonarQube..."
+          echo " Surveillance du démarrage SonarQube..."
           
-          # Attendre que le service soit disponible
-          kubectl wait --for=condition=available deployment/sonarqube-sonarqube -n sonarqube --timeout=900s
-          
-          # Attendre que l'IP externe soit assignée
-          echo " Attente de l'IP externe..."
-          for i in {1..20}; do
-            SONAR_IP=$(kubectl get svc sonarqube-sonarqube -n sonarqube -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-            if [ -n "$SONAR_IP" ]; then
-              echo " IP externe assignée: $SONAR_IP"
-              break
+          # Surveiller les pods pendant 20 minutes max
+          for i in {1..40}; do
+            echo "=== Vérification $i/40 ($(date)) ==="
+            
+            # État des pods
+            kubectl get pods -n sonarqube -l app.kubernetes.io/name=sonarqube
+            
+            # Logs récents
+            echo " Logs récents:"
+            kubectl logs -l app.kubernetes.io/name=sonarqube -n sonarqube --tail=5 --since=30s 2>/dev/null || echo "Pas de logs disponibles"
+            
+            # Vérifier si SonarQube est prêt
+            if kubectl get pods -n sonarqube -l app.kubernetes.io/name=sonarqube | grep -q "1/1.*Running"; then
+              echo " SonarQube pod est en cours d'exécution!"
+              
+              # Test de l'API
+              SONAR_IP=$(kubectl get svc sonarqube-sonarqube -n sonarqube -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+              if [ -n "$SONAR_IP" ]; then
+                echo " Test de l'API SonarQube sur $SONAR_IP..."
+                if curl -sSf "http://$SONAR_IP:9000/api/system/status" 2>/dev/null | grep -q "UP\|STARTING"; then
+                  echo " SonarQube API répond!"
+                  break
+                fi
+              fi
             fi
-            echo "Attente de l'IP externe... ($i/20)"
-            sleep 15
+            
+            echo " Attente... (30 secondes)"
+            sleep 30
           done
 
-      - name: Get SonarQube URL and test connectivity
+      - name: Get SonarQube URL and final status
         id: get-url
         run: |
           SONAR_IP=$(kubectl get svc sonarqube-sonarqube -n sonarqube -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
@@ -261,16 +277,16 @@ jobs:
           echo "url=$SONAR_URL" >> $GITHUB_OUTPUT
           echo " SonarQube URL: $SONAR_URL"
           
-          # Test de connectivité
-          echo " Test de connectivité..."
-          for i in {1..20}; do
-            if curl -sSf "$SONAR_URL/api/system/status" | grep -q "UP\|STARTING"; then
-              echo " SonarQube répond!"
+          # Test final de connectivité
+          echo " Test final de connectivité..."
+          for i in {1..10}; do
+            if curl -sSf "$SONAR_URL/api/system/status" 2>/dev/null | grep -q "UP"; then
+              echo " SonarQube est complètement opérationnel!"
               curl -s "$SONAR_URL/api/system/status" | jq '.' 2>/dev/null || curl -s "$SONAR_URL/api/system/status"
               break
             fi
-            echo "Attente de SonarQube... ($i/20)"
-            sleep 30
+            echo "Attente finale... ($i/10)"
+            sleep 15
           done
 
       - name: Display deployment summary
@@ -278,8 +294,8 @@ jobs:
           SONAR_URL: ${{ steps.get-url.outputs.url }}
           MONITORING_PASSCODE: ${{ steps.deploy-sonar.outputs.passcode }}
         run: |
-          echo " DÉPLOIEMENT SONARQUBE TERMINÉ AVEC SUCCÈS!"
-          echo "============================================="
+          echo " DÉPLOIEMENT SONARQUBE TERMINÉ!"
+          echo "================================="
           echo ""
           echo " Informations de déploiement:"
           echo "• Version SonarQube: ${{ env.SONARQUBE_CHART_VERSION }}"
@@ -287,12 +303,12 @@ jobs:
           echo "• Identifiants par défaut: admin / admin"
           echo "• Passcode de monitoring: $MONITORING_PASSCODE"
           echo ""
-          echo " État des services:"
+          echo " État final des services:"
           kubectl get pods -n sonarqube
           kubectl get svc -n sonarqube
           kubectl get pvc -n sonarqube
           echo ""
-          echo " SonarQube est prêt pour la configuration des projets!"
+          echo " SonarQube est prêt pour la configuration!"
 
   configure-sonarqube:
     runs-on: ubuntu-latest
@@ -309,7 +325,7 @@ jobs:
           
           # Attendre que SonarQube soit complètement prêt
           for i in {1..30}; do
-            if curl -sSf "$SONAR_URL/api/system/health" | grep -q "GREEN"; then
+            if curl -sSf "$SONAR_URL/api/system/health" 2>/dev/null | grep -q "GREEN"; then
               echo " SonarQube est prêt pour la configuration"
               break
             fi
@@ -343,7 +359,6 @@ jobs:
           echo " Identifiants: admin / $SONAR_ADMIN_PASSWORD"
           echo " Passcode de monitoring: $MONITORING_PASSCODE"
           echo ""
-          echo " Projets créés:"
+          echo  Projets créés:"
           echo "• Frontend (clé: frontend)"
           echo "• Backend (clé: backend)"
-
