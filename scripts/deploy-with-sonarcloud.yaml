@@ -1,0 +1,245 @@
+name: Deploy Infrastructure with SonarCloud
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: primordial-port-462408-q7
+  CLUSTER_NAME: primordial-port-462408-q7-gke-cluster
+  CLUSTER_REGION: europe-west9
+
+jobs:
+  # Job 1: Analyse de code avec SonarCloud
+  sonarcloud-analysis:
+    name: SonarCloud Code Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Nécessaire pour SonarCloud
+
+      - name: Setup Node.js (pour frontend)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: frontend-app/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend-app
+          npm ci
+
+      - name: Run frontend tests with coverage
+        run: |
+          cd frontend-app
+          npm run test -- --coverage --watchAll=false
+
+      - name: Setup Python (pour backend)
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend-app
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run backend tests with coverage
+        run: |
+          cd backend-app
+          python -m pytest --cov=. --cov-report=xml --cov-report=html
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # Job 2: Déploiement infrastructure (sans SonarQube Kubernetes)
+  deploy-infrastructure:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    needs: sonarcloud-analysis
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          location: ${{ env.CLUSTER_REGION }}
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo add traefik https://traefik.github.io/charts
+          helm repo update
+
+      - name: Prepare namespace and cleanup
+        run: |
+          # Créer les namespaces nécessaires
+          kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace preprod --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo " Namespaces préparés"
+
+      - name: Deploy PostgreSQL for applications
+        run: |
+          # Déployer PostgreSQL pour les applications (pas SonarQube)
+          helm upgrade --install postgres-prod bitnami/postgresql \
+            --namespace production \
+            --set auth.postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
+            --set auth.database=fullstack_app \
+            --set persistence.size=20Gi \
+            --set resources.requests.memory=512Mi \
+            --set resources.requests.cpu=250m \
+            --set resources.limits.memory=1Gi \
+            --set resources.limits.cpu=500m \
+            --wait --timeout=10m
+          
+          echo " PostgreSQL déployé en production"
+
+      - name: Deploy WordPress
+        run: |
+          # Déployer WordPress connecté à PostgreSQL
+          helm upgrade --install wordpress-prod bitnami/wordpress \
+            --namespace production \
+            --set externalDatabase.host=postgres-prod-postgresql.production.svc.cluster.local \
+            --set externalDatabase.user=postgres \
+            --set externalDatabase.password="${{ secrets.POSTGRES_PASSWORD }}" \
+            --set externalDatabase.database=fullstack_app \
+            --set mariadb.enabled=false \
+            --set persistence.size=10Gi \
+            --set service.type=LoadBalancer \
+            --set resources.requests.memory=512Mi \
+            --set resources.requests.cpu=250m \
+            --wait --timeout=10m
+          
+          echo " WordPress déployé en production"
+
+      - name: Deploy monitoring stack
+        run: |
+          # Déployer Prometheus et Grafana
+          helm upgrade --install prometheus bitnami/kube-prometheus \
+            --namespace monitoring \
+            --set prometheus.persistence.size=10Gi \
+            --set grafana.persistence.size=5Gi \
+            --set grafana.service.type=LoadBalancer \
+            --set alertmanager.persistence.size=5Gi \
+            --wait --timeout=10m
+          
+          echo " Stack de monitoring déployé"
+
+      - name: Deploy Traefik Ingress
+        run: |
+          # Déployer Traefik pour l'ingress
+          helm upgrade --install traefik traefik/traefik \
+            --namespace kube-system \
+            --set service.type=LoadBalancer \
+            --set ports.web.port=80 \
+            --set ports.websecure.port=443 \
+            --wait --timeout=10m
+          
+          echo " Traefik Ingress déployé"
+
+      - name: Display deployment status
+        run: |
+          echo " DÉPLOIEMENT TERMINÉ AVEC SUCCÈS !"
+          echo "=================================="
+          echo ""
+          echo " SERVICES DÉPLOYÉS :"
+          echo "•  PostgreSQL Production"
+          echo "•  WordPress Production" 
+          echo "•  Monitoring (Prometheus + Grafana)"
+          echo "•  Traefik Ingress"
+          echo "•  SonarCloud (Analyse de code)"
+          echo ""
+          echo " ACCÈS AUX SERVICES :"
+          kubectl get services --all-namespaces -o wide | grep LoadBalancer
+          echo ""
+          echo " ÉTAT DES PODS :"
+          kubectl get pods --all-namespaces | grep -E "(production|monitoring)"
+          echo ""
+          echo " ANALYSE DE CODE :"
+          echo "• SonarCloud : https://sonarcloud.io/project/overview?id=Bilalismeil59_Fullstack-infra"
+          echo "• Qualité du code analysée automatiquement"
+          echo "• Rapports disponibles dans SonarCloud"
+
+      - name: Post deployment validation
+        run: |
+          echo " VALIDATION POST-DÉPLOIEMENT"
+          echo "=============================="
+          
+          # Vérifier que tous les pods sont en cours d'exécution
+          echo "Vérification des pods critiques..."
+          
+          # Attendre que PostgreSQL soit prêt
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n production --timeout=300s
+          
+          # Attendre que WordPress soit prêt
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=wordpress -n production --timeout=300s
+          
+          echo " Tous les services critiques sont opérationnels"
+          
+          # Afficher les URLs d'accès
+          echo ""
+          echo " URLS D'ACCÈS :"
+          WORDPRESS_IP=$(kubectl get svc wordpress-prod -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
+          GRAFANA_IP=$(kubectl get svc prometheus-grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
+          
+          echo "• WordPress : http://$WORDPRESS_IP"
+          echo "• Grafana : http://$GRAFANA_IP"
+          echo "• SonarCloud : https://sonarcloud.io"
+          
+          echo ""
+          echo " DÉPLOIEMENT RÉUSSI SANS SONARQUBE KUBERNETES !"
+          echo "• Infrastructure complète déployée"
+          echo "• Analyse de code via SonarCloud"
+          echo "• Monitoring opérationnel"
+          echo "• Applications accessibles"
+
+  # Job 3: Notification de succès
+  notify-success:
+    name: Notify Deployment Success
+    runs-on: ubuntu-latest
+    needs: [sonarcloud-analysis, deploy-infrastructure]
+    if: success()
+    
+    steps:
+      - name: Success notification
+        run: |
+          echo " DÉPLOIEMENT COMPLET RÉUSSI !"
+          echo "=============================="
+          echo ""
+          echo " COMPOSANTS DÉPLOYÉS :"
+          echo "• SonarCloud : Analyse de code automatique"
+          echo "• PostgreSQL : Base de données production"
+          echo "• WordPress : Application web"
+          echo "• Monitoring : Prometheus + Grafana"
+          echo "• Ingress : Traefik"
+          echo ""
+          echo " LIENS UTILES :"
+          echo "• SonarCloud : https://sonarcloud.io/project/overview?id=Bilalismeil59_Fullstack-infra"
+          echo "• GitHub Actions : ${{ github.server_url }}/${{ github.repository }}/actions"
+          echo ""
+          echo " QUALITÉ DU CODE :"
+          echo "• Tests automatiques exécutés"
+          echo "• Couverture de code analysée"
+          echo "• Vulnérabilités détectées"
+          echo "• Métriques de qualité disponibles"
+
