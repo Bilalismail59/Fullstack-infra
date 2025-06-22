@@ -1,21 +1,48 @@
-# Fichiers sensibles Terraform
-*.json
-*.tfstate
-*.tfstate.backup
-.terraform/
-terraform.tfvars
+# ====== Node.js / Frontend ======
+frontend-app/node_modules/
+frontend-app/dist/
+frontend-app/build/
+frontend-app/.env
+frontend-app/.next/
+frontend-app/coverage/
+frontend-app/.turbo/
+frontend-app/.vite/
+frontend-app/.cache/
 
-# Fichiers d'environnement
+# Autoriser les fichiers nécessaires
+!frontend-app/package.json
+!frontend-app/pnpm-lock.yaml
+
+# ====== Python / Backend ======
+backend-app/__pycache__/
+backend-app/*.pyc
+backend-app/venv/
+backend-app/.env
+backend-app/.pytest_cache/
+backend-app/coverage/
+backend-app/.mypy_cache/
+backend-app/test-results.xml
+backend-app/coverage.xml
+backend-app/htmlcov/
+
+# ====== Terraform ======
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.tfvars.json
+
+# ====== Fichiers sensibles et temporaires ======
 .env
 *.key
-
-# Dépendances
-node_modules/
-
-# Terraform and sensitive files
-.terraform/
-*.tfstate
-*.tfstate.backup
-*.json
+*.pem
+*.log
+*.bak
+*.swp
 *credentials*
-backend-app/venv/
+
+# ====== Systèmes / IDE ======
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db
