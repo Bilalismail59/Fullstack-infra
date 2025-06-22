@@ -31,10 +31,13 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
-          cache-dependency-path: frontend-app/package-lock.json
+          cache-dependency-path: frontend-app/pnpm-lock.yaml
+
+      - name: Install PNPM
+        run: npm install -g pnpm    
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: pnpm install
         working-directory: frontend-app
 
       - name: Run frontend tests with coverage
