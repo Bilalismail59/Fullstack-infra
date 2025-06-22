@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: '18'
           cache: 'pnpm'
-          cache-dependency-path: Fullstack-infra/frontend-app/pnpm-lock.yaml
+          cache-dependency-path: frontend-app/pnpm-lock.yaml
 
       - name: Install PNPM
         run: npm install -g pnpm    
