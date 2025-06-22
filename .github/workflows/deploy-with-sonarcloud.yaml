@@ -16,6 +16,10 @@ jobs:
   sonarcloud-analysis:
     name: SonarCloud Code Analysis
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -30,14 +34,13 @@ jobs:
           cache-dependency-path: frontend-app/package-lock.json
 
       - name: Install frontend dependencies
-        run: |
-          cd frontend-app
-          npm ci
+        run: npm ci
+        working-directory: frontend-app
 
       - name: Run frontend tests with coverage
-        run: |
-          cd frontend-app
-          npm run test -- --coverage --watchAll=false
+        run: npm run test -- --coverage --watchAll=false
+        working-directory: frontend-app
+          
 
       - name: Setup Python (pour backend)
         uses: actions/setup-python@v4
@@ -46,17 +49,19 @@ jobs:
 
       - name: Install backend dependencies
         run: |
-          cd backend-app
           pip install -r requirements.txt
           pip install pytest pytest-cov
+        working-directory: backend-app  
 
       - name: Run backend tests with coverage
         run: |
-          cd backend-app
           python -m pytest --cov=. --cov-report=xml --cov-report=html
+        working-directory: backend-app  
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarcloud-github-action@v2
+        with:
+          projectBaseDir: frontend-app
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
