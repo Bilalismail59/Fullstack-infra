@@ -30,20 +30,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'pnpm'
-          cache-dependency-path: frontend-app/pnpm-lock.yaml
-
-      - name: Install PNPM
-        run: npm install -g pnpm    
+          cache: 'npm'
+          cache-dependency-path: frontend-app/package-lock.json
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: npm ci
         working-directory: frontend-app
 
       - name: Run frontend tests with coverage
         run: npm run test -- --coverage --watchAll=false
         working-directory: frontend-app
-          
 
       - name: Setup Python (pour backend)
         uses: actions/setup-python@v4
@@ -57,13 +53,11 @@ jobs:
         working-directory: backend-app  
 
       - name: Run backend tests with coverage
-        run: pnpm run test -- --coverage --watchAll=false
+        run: python -m pytest --cov=. --cov-report=xml --cov-report=html
         working-directory: backend-app  
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v2
-        with:
-          projectBaseDir: frontend-app
+        uses: SonarSource/sonarcloud-github-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -249,4 +243,3 @@ jobs:
           echo "• Couverture de code analysée"
           echo "• Vulnérabilités détectées"
           echo "• Métriques de qualité disponibles"
-
