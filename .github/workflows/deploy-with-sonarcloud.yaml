@@ -87,13 +87,13 @@ jobs:
           fi
 
       - name: SonarCloud Scan (Backend)
-        uses: SonarSource/sonarcloud-github-action@v5.0.0
-        with:
-          projectBaseDir: backend-app
+        uses: SonarSource/sonarqube-scan-action@v5.0.0
+        with:      
+          args: >
+            -Dsonar.projectBaseDir=backend-app
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
+          
   # Job 2: Déploiement infrastructure
   deploy-infrastructure:
     name: Deploy Infrastructure
