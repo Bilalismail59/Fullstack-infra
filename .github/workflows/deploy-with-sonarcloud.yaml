@@ -23,17 +23,17 @@ jobs:
         with:
           fetch-depth: 0  # Nécessaire pour SonarCloud
 
+      - name: Install pnpm FIRST
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
       - name: Setup Node.js for Vite
         uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'pnpm'
           cache-dependency-path: frontend-app/pnpm-lock.yaml
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
 
       - name: Install frontend dependencies (Vite + pnpm)
         run: |
@@ -206,7 +206,7 @@ jobs:
           echo "=============================="
           
           # Attendre que PostgreSQL soit prêt
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n production --timeout=300s || echo " PostgreSQL pas encore prêt"
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n production --timeout=300s || echo "⚠️ PostgreSQL pas encore prêt"
           
           # Attendre que WordPress soit prêt
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=wordpress -n production --timeout=300s || echo " WordPress pas encore prêt"
