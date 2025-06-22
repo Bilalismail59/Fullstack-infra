@@ -86,8 +86,10 @@ jobs:
             echo " Pas de backend trouvé"
           fi
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+      - name: SonarCloud Scan (Backend)
+        uses: SonarSource/sonarcloud-github-action@v5.0.0
+        with:
+          projectBaseDir: backend-app
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -206,7 +208,7 @@ jobs:
           echo "=============================="
           
           # Attendre que PostgreSQL soit prêt
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n production --timeout=300s || echo "⚠️ PostgreSQL pas encore prêt"
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n production --timeout=300s || echo " PostgreSQL pas encore prêt"
           
           # Attendre que WordPress soit prêt
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=wordpress -n production --timeout=300s || echo " WordPress pas encore prêt"
