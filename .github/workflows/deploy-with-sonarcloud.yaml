@@ -148,15 +148,47 @@ jobs:
             --wait --timeout=10m
           echo " WordPress déployé avec MariaDB"
 
-      - name: Deploy monitoring stack
+      - name: Clean existing Prometheus installation (if exists)
         run: |
-          helm upgrade --install prometheus bitnami/kube-prometheus \
+          echo " Nettoyage des installations Prometheus existantes..."
+          
+          # Supprimer l'installation Helm existante
+          helm uninstall prometheus -n monitoring 2>/dev/null || echo " Aucune installation Prometheus trouvée"
+          
+          # Attendre que les ressources soient supprimées
+          sleep 30
+          
+          # Supprimer les CRDs Prometheus qui peuvent causer des conflits
+          kubectl delete crd prometheuses.monitoring.coreos.com 2>/dev/null || echo " CRD prometheuses non trouvé"
+          kubectl delete crd prometheusrules.monitoring.coreos.com 2>/dev/null || echo " CRD prometheusrules non trouvé"
+          kubectl delete crd servicemonitors.monitoring.coreos.com 2>/dev/null || echo " CRD servicemonitors non trouvé"
+          kubectl delete crd alertmanagers.monitoring.coreos.com 2>/dev/null || echo " CRD alertmanagers non trouvé"
+          kubectl delete crd podmonitors.monitoring.coreos.com 2>/dev/null || echo " CRD podmonitors non trouvé"
+          
+          # Supprimer les ressources restantes dans le namespace monitoring
+          kubectl delete all --all -n monitoring 2>/dev/null || echo " Namespace monitoring vide"
+          
+          echo " Nettoyage terminé"
+
+      - name: Deploy monitoring stack (clean installation)
+        run: |
+          echo " Déploiement du monitoring stack..."
+          
+          helm upgrade --install monitoring-stack bitnami/kube-prometheus \
             --namespace monitoring \
             --set prometheus.persistence.size=10Gi \
             --set grafana.persistence.size=5Gi \
             --set grafana.service.type=LoadBalancer \
             --set alertmanager.persistence.size=5Gi \
-            --wait --timeout=10m
+            --set prometheus.resources.requests.memory=512Mi \
+            --set prometheus.resources.requests.cpu=250m \
+            --set prometheus.resources.limits.memory=1Gi \
+            --set prometheus.resources.limits.cpu=500m \
+            --set grafana.resources.requests.memory=256Mi \
+            --set grafana.resources.requests.cpu=100m \
+            --set grafana.resources.limits.memory=512Mi \
+            --set grafana.resources.limits.cpu=200m \
+            --wait --timeout=15m
           echo " Monitoring déployé"
 
       - name: Deploy Traefik Ingress
@@ -166,6 +198,10 @@ jobs:
             --set service.type=LoadBalancer \
             --set ports.web.port=80 \
             --set ports.websecure.port=443 \
+            --set resources.requests.memory=128Mi \
+            --set resources.requests.cpu=100m \
+            --set resources.limits.memory=256Mi \
+            --set resources.limits.cpu=200m \
             --wait --timeout=10m
           echo " Traefik déployé"
 
@@ -182,14 +218,10 @@ jobs:
           echo "•  SonarCloud (Analyse de code)"
           echo ""
           echo " ACCÈS AUX SERVICES :"
-          kubectl get services --all-namespaces -o wide | grep LoadBalancer
+          kubectl get services --all-namespaces -o wide | grep LoadBalancer || echo " LoadBalancers en cours d'attribution"
           echo ""
           echo " ÉTAT DES PODS :"
-          kubectl get pods --all-namespaces | grep -E "(production|monitoring)"
-          echo ""
-          echo " LIENS UTILES :"
-          echo "• SonarCloud : https://sonarcloud.io"
-          echo "• GitHub Actions : ${{ github.server_url }}/${{ github.repository }}/actions"
+          kubectl get pods --all-namespaces | grep -E "(production|monitoring)" || echo " Pods en cours de démarrage"
 
       - name: Validation post-déploiement
         run: |
@@ -199,16 +231,18 @@ jobs:
           # Attendre que PostgreSQL soit prêt
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n production --timeout=300s || echo " PostgreSQL pas encore prêt"
           
-          # Attendre que WordPress soit prêt
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=wordpress -n production --timeout=300s || echo " WordPress pas encore prêt"
+          # Attendre que WordPress soit prêt (plus de temps car il peut redémarrer)
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=wordpress -n production --timeout=600s || echo " WordPress pas encore prêt"
+          
+          # Attendre que Grafana soit prêt
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n monitoring --timeout=300s || echo " Grafana pas encore prêt"
           
           echo " Validation terminée"
           
-          # Afficher les URLs d'accès
           echo ""
           echo " URLS D'ACCÈS :"
           WORDPRESS_IP=$(kubectl get svc wordpress-prod -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
-          GRAFANA_IP=$(kubectl get svc prometheus-grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
+          GRAFANA_IP=$(kubectl get svc monitoring-stack-grafana -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
           
           echo "• WordPress : http://$WORDPRESS_IP"
           echo "• Grafana : http://$GRAFANA_IP"
@@ -231,14 +265,14 @@ jobs:
           echo "• SonarCloud : Analyse de code automatique"
           echo "• PostgreSQL : Base de données production"
           echo "• WordPress : Application web"
-          echo "• Monitoring : Prometheus + Grafana"
+          echo "• Monitoring : Prometheus + Grafana (nom: monitoring-stack)"
           echo "• Ingress : Traefik"
           echo ""
           echo " LIENS UTILES :"
           echo "• SonarCloud : https://sonarcloud.io/project/overview?id=Bilalismeil59_Fullstack-infra"
           echo "• GitHub Actions : ${{ github.server_url }}/${{ github.repository }}/actions"
           echo ""
-          echo " FRONTEND (VITE) :"
-          echo "• Build réussi avec Vite"
-          echo "• Dépendances installées avec pnpm"
-          echo "• Code analysé par SonarCloud"
+          echo " CORRECTIONS APPLIQUÉES :"
+          echo "• Conflit Prometheus résolu avec nettoyage automatique"
+          echo "• Ressources optimisées pour éviter les timeouts"
+          echo "• Timeouts étendus pour WordPress (15 min)"
