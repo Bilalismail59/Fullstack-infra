@@ -1,0 +1,32 @@
+mariadb:
+  enabled: false
+
+externalDatabase:
+  host: postgres-prod-postgresql.production.svc.cluster.local
+  user: postgres
+  password: sonar
+  database: fullstack_app
+  port: 5432
+  sslmode: disable
+
+persistence:
+  enabled: true
+  storageClass: "standard-rwo"
+  size: 10Gi
+
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 1Gi
+    cpu: 500m
+
+service:
+  type: LoadBalancer
+
+livenessProbe:
+  initialDelaySeconds: 300
+
+readinessProbe:
+  initialDelaySeconds: 300
