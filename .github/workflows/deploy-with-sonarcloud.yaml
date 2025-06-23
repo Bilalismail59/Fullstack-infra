@@ -129,35 +129,24 @@ jobs:
           kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
           echo " Namespaces préparés"
 
-      - name: Deploy PostgreSQL
+      - name: Deploy WordPress with MariaDB
         run: |
-          helm upgrade --install postgres-prod bitnami/postgresql \
-            --namespace production \
-            --set auth.postgresPassword="${{ secrets.POSTGRES_PASSWORD }}" \
-            --set auth.database=fullstack_app \
-            --set persistence.size=20Gi \
-            --set resources.requests.memory=512Mi \
-            --set resources.requests.cpu=250m \
-            --set resources.limits.memory=1Gi \
-            --set resources.limits.cpu=500m \
-            --wait --timeout=10m
-          echo " PostgreSQL déployé"
+          # Annuler toute opération Helm en cours
+          helm rollback wordpress-prod -n production 0 2>/dev/null || true
 
-      - name: Deploy WordPress
-        run: |
           helm upgrade --install wordpress-prod bitnami/wordpress \
             --namespace production \
-            --set externalDatabase.host=postgres-prod-postgresql.production.svc.cluster.local \
-            --set externalDatabase.user=postgres \
-            --set externalDatabase.password="${{ secrets.POSTGRES_PASSWORD }}" \
-            --set externalDatabase.database=fullstack_app \
-            --set mariadb.enabled=false \
+            --set mariadb.enabled=true \
+            --set mariadb.auth.rootPassword=${{ secrets.MARIADB_ROOT_PASSWORD }} \
+            --set mariadb.auth.database=bitnami_wordpress \
+            --set mariadb.auth.username=bn_wordpress \
+            --set mariadb.auth.password=${{ secrets.MARIADB_PASSWORD }} \
             --set persistence.size=10Gi \
             --set service.type=LoadBalancer \
             --set resources.requests.memory=512Mi \
             --set resources.requests.cpu=250m \
             --wait --timeout=10m
-          echo " WordPress déployé"
+          echo " WordPress déployé avec MariaDB"
 
       - name: Deploy monitoring stack
         run: |
