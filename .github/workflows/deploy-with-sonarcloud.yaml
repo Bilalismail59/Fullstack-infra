@@ -150,78 +150,90 @@ jobs:
 
       - name: Clean existing Prometheus installation (if exists)
         run: |
-          echo " Nettoyage des installations Prometheus existantes..."
-          
-          # Supprimer l'installation Helm existante
-          helm uninstall prometheus -n monitoring 2>/dev/null || echo " Aucune installation Prometheus trouvée"
-          
-          # Attendre que les ressources soient supprimées
-          sleep 20
-          
-          for crd in prometheuses.monitoring.coreos.com \
-               prometheusrules.monitoring.coreos.com \
-               servicemonitors.monitoring.coreos.com \
-               alertmanagers.monitoring.coreos.com \
-               podmonitors.monitoring.coreos.com \
-               thanosrulers.monitoring.coreos.com; do
-            kubectl delete crd $crd 2>/dev/null || echo " $crd non trouvé"
+          echo "Nettoyage des installations Prometheus existantes..."
+    
+          # Supprimer l'installation Helm existante avec timeout augmenté
+          helm uninstall prometheus -n monitoring --wait --timeout 5m 2>/dev/null || echo "Aucune installation Prometheus trouvée"
+    
+          # Supprimer monitoring-stack si existant
+          helm uninstall monitoring-stack -n monitoring --wait --timeout 5m 2>/dev/null || echo "Aucune installation monitoring-stack trouvée"
+    
+          # Attendre que les ressources soient supprimées avec vérification
+          echo "Vérification de la suppression des pods..."
+          timeout 300 bash -c "while kubectl get pods -n monitoring 2>/dev/null | grep -v 'No resources found'; do sleep 10; echo 'En attente de suppression...'; done" || echo "Certains pods peuvent encore exister"
+    
+          # Supprimer les CRDs
+          for crd in prometheuses.monitoring.coreos.com \  
+            prometheusrules.monitoring.coreos.com \
+            servicemonitors.monitoring.coreos.com \
+            alertmanagers.monitoring.coreos.com \
+            podmonitors.monitoring.coreos.com \
+            thanosrulers.monitoring.coreos.com; do
+          kubectl delete crd $crd --wait=false 2>/dev/null || echo "$crd non trouvé"
           done
-          
-          # Supprimer les ressources restantes dans le namespace monitoring
-          kubectl delete all --all -n monitoring 2>/dev/null || echo " Namespace monitoring vide"
-          kubectl delete pvc --all -n monitoring 2>/dev/null || echo " Aucun PVC à supprimer"
+    
+          # Supprimer les ressources restantes
+          kubectl delete all --all -n monitoring --wait=false 2>/dev/null || echo "Namespace monitoring vide"
+          kubectl delete pvc --all -n monitoring --wait=false 2>/dev/null || echo "Aucun PVC à supprimer"
+    
+          # Nettoyer les finalizers bloquants
+          kubectl get namespace monitoring -o json | jq '.spec = {"finalizers":[]}' > temp.json
+          kubectl replace --raw "/api/v1/namespaces/monitoring/finalize" -f ./temp.json 2>/dev/null || true
+          rm -f temp.json
 
       - name: Install Prometheus CRDs (forced ownership)
         run: |
-          echo " Installation forcée des CRDs Prometheus..."
+          echo "Installation forcée des CRDs Prometheus..."
           BASE_URL="https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd"
           for crd in monitoring.coreos.com_alertmanagers.yaml \
-               monitoring.coreos.com_podmonitors.yaml \
-               monitoring.coreos.com_prometheuses.yaml \
-               monitoring.coreos.com_prometheusrules.yaml \
-               monitoring.coreos.com_servicemonitors.yaml \
-               monitoring.coreos.com_thanosrulers.yaml; do
-            kubectl apply --server-side --force-conflicts -f $BASE_URL/$crd
+            monitoring.coreos.com_podmonitors.yaml \
+            monitoring.coreos.com_prometheuses.yaml \
+            monitoring.coreos.com_prometheusrules.yaml \
+            monitoring.coreos.com_servicemonitors.yaml \
+            monitoring.coreos.com_thanosrulers.yaml; do
+          kubectl apply --server-side --force-conflicts -f $BASE_URL/$crd --timeout=3m
+          sleep 2
           done
-          echo " CRDs installées avec succès"
+          echo "CRDs installées avec succès"
+    
+          # Attendre que les CRDs soient établies
+          kubectl wait --for condition=established --timeout=5m crd prometheuses.monitoring.coreos.com
 
       - name: Wait for previous Helm operations to complete
         run: |
-          echo " Vérification de l'absence d'opérations Helm en cours..."
+          echo "Vérification de l'absence d'opérations Helm en cours..."
           i=0
-          while helm history monitoring-stack -n monitoring >/dev/null 2>&1 && [ $i -lt 10 ]; do
-            echo " Une opération Helm est encore en cours... Tentative $((i+1))/10"
-            sleep 30
-            i=$((i+1))
+          while helm list -n monitoring -q | grep -E 'prometheus|monitoring-stack' && [ $i -lt 30 ]; do
+          echo "Une installation Helm est encore présente... Tentative $((i+1))/30"
+          helm uninstall $(helm list -n monitoring -q | grep -E 'prometheus|monitoring-stack') -n monitoring --wait --timeout 2m 2>/dev/null || true
+          sleep 10
+          i=$((i+1))
           done
-          if [ $i -eq 10 ]; then
-            echo " Échec : Helm semble toujours occupé après 5 minutes."
-            echo " Déclenchement du nettoyage forcé dans l'étape suivante..."
-            exit 0  # <- NE PAS interrompre brutalement
-          fi
-          echo " Aucune opération Helm en cours, poursuite du déploiement."
+          echo "Aucune installation Helm détectée, poursuite du déploiement."
 
       - name: Force cleanup if Helm is stuck
         if: always()
         run: |
-          echo " Opération Helm bloquée détectée. Nettoyage forcé en cours..."
-
-          echo " Suppression du release 'monitoring-stack'..."
-          helm uninstall monitoring-stack -n monitoring || echo " Aucun release à supprimer"
-
-          echo " Suppression des ressources dans le namespace monitoring..."
-          kubectl delete all --all -n monitoring || echo " Namespace monitoring nettoyé"
-          kubectl delete pvc --all -n monitoring || echo " PVC supprimés"
-
-          echo " Suppression des CRDs Prometheus..."
-          kubectl delete crd prometheuses.monitoring.coreos.com prometheusrules.monitoring.coreos.com \
-          servicemonitors.monitoring.coreos.com alertmanagers.monitoring.coreos.com \
-          podmonitors.monitoring.coreos.com thanosrulers.monitoring.coreos.com || echo " CRDs supprimées"
-   
+          echo "Nettoyage forcé en cours..."
+    
+          # Suppression forcée des releases
+          for release in $(helm list -n monitoring -q); do
+          helm uninstall $release -n monitoring --no-hooks --wait=false
+          done
+    
+          # Suppression des ressources avec force
+          kubectl delete all --all -n monitoring --force --grace-period=0 2>/dev/null || true
+          kubectl delete pvc --all -n monitoring --force --grace-period=0 2>/dev/null || true
+          kubectl delete jobs --all -n monitoring --force --grace-period=0 2>/dev/null || true
+    
+          # Nettoyage des finalizers
+          for resource in $(kubectl api-resources --verbs=delete -o name | grep -v events); do
+          kubectl get $resource -n monitoring -o name | xargs -r kubectl patch -n monitoring -p '{"metadata":{"finalizers":[]}}' --type=merge || true
+          done
 
       - name: Deploy monitoring stack (clean installation)
         run: |
-          echo " Déploiement du monitoring stack..."
+          echo "Déploiement du monitoring stack..."
     
           helm upgrade --install monitoring-stack bitnami/kube-prometheus \
             --namespace monitoring \
@@ -248,17 +260,20 @@ jobs:
             --set coreDns.enabled=false \
             --set kubeEtcd.enabled=false \
             --set kubeProxy.enabled=false \
-            --atomic \
             --debug \
-            --wait --timeout=40m
+            --wait --timeout=40m \
+            --atomic=false  # Désactivé pour la première tentative
 
-          echo " Monitoring déployé avec succès."
+          echo "Monitoring déployé avec succès."
 
       - name: Retry Deploy monitoring stack (after cleanup)
         if: failure()
         run: |
-          echo "🔁 Nouvelle tentative de déploiement du monitoring stack après nettoyage forcé..."
-
+          echo "🔁 Nouvelle tentative de déploiement du monitoring stack..."
+    
+          # Nettoyage supplémentaire avant retry
+          kubectl delete all --all -n monitoring --wait=false 2>/dev/null || true
+    
           helm upgrade --install monitoring-stack bitnami/kube-prometheus \
             --namespace monitoring \
             --create-namespace \
@@ -284,24 +299,39 @@ jobs:
             --set coreDns.enabled=false \
             --set kubeEtcd.enabled=false \
             --set kubeProxy.enabled=false \
-            --atomic \
             --debug \
-            --wait --timeout=40m
+            --wait --timeout=50m \
+            --atomic  # Activé pour la retry
 
-          echo " Deuxième tentative : monitoring déployé avec succès."    
+          echo "Deuxième tentative : monitoring déployé avec succès."
 
       - name: Diagnostic en cas d'échec
         if: failure()
         run: |
-          echo " Le déploiement du monitoring a échoué. Lancement du diagnostic..."
+          echo "Le déploiement du monitoring a échoué. Diagnostic complet:"
           echo ""
-          kubectl get pods -n monitoring -o wide
+          echo "=== Pods en erreur ==="
+          kubectl get pods -n monitoring -o wide | grep -vE 'Running|Completed'
           echo ""
-          echo " Derniers événements dans monitoring :"
-          kubectl get events -n monitoring --sort-by='.lastTimestamp' | tail -20
+          echo "=== Logs des pods problématiques ==="
+          for pod in $(kubectl get pods -n monitoring -o jsonpath='{.items[?(@.status.phase!="Running")].metadata.name}'); do
+            echo "Logs pour $pod:"
+            kubectl logs -n monitoring $pod --tail=50 || true
+          done
           echo ""
-          echo " Liste des PVC :"
-          kubectl get pvc -n monitoring   
+          echo "=== Événements récents ==="
+          kubectl get events -n monitoring --sort-by='.lastTimestamp' --field-selector type!=Normal | tail -50
+          echo ""
+          echo "=== PVC/PV ==="
+          kubectl get pvc,pv -n monitoring
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n monitoring
+          echo ""
+          echo "=== Description des pods en échec ==="
+          for pod in $(kubectl get pods -n monitoring -o jsonpath='{.items[?(@.status.phase!="Running")].metadata.name}'); do
+            kubectl describe pod -n monitoring $pod
+          done  
 
       - name: Deploy Traefik Ingress
         run: |
