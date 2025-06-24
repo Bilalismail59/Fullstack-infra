@@ -238,7 +238,7 @@ jobs:
             --set operator.resources.requests.memory=256Mi \
             --set operator.resources.limits.cpu=200m \
             --set operator.resources.limits.memory=512Mi \
-            --set nodeExporter.enabled=false \
+            --set kubelet.enabled=false \
             --set kubeScheduler.enabled=false \
             --set kubeControllerManager.enabled=false \
             --set coreDns.enabled=false \
@@ -274,7 +274,7 @@ jobs:
             --set operator.resources.requests.memory=256Mi \
             --set operator.resources.limits.cpu=200m \
             --set operator.resources.limits.memory=512Mi \
-            --set nodeExporter.enabled=false \
+            --set kubelet.enabled=false \
             --set kubeScheduler.enabled=false \
             --set kubeControllerManager.enabled=false \
             --set coreDns.enabled=false \
