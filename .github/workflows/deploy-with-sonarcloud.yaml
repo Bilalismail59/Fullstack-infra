@@ -189,6 +189,7 @@ jobs:
           
           helm upgrade --install monitoring-stack bitnami/kube-prometheus \
             --namespace monitoring \
+            --create-namespace \
             --set prometheus.persistence.size=10Gi \
             --set grafana.persistence.size=5Gi \
             --set grafana.service.type=LoadBalancer \
@@ -201,8 +202,17 @@ jobs:
             --set grafana.resources.requests.cpu=100m \
             --set grafana.resources.limits.memory=512Mi \
             --set grafana.resources.limits.cpu=200m \
-            --wait --timeout=15m
+            --wait --timeout=30m
           echo " Monitoring déployé"
+
+      - name: Check pods status after monitoring deployment
+        run: |
+          echo " Vérification des pods dans le namespace monitoring..."
+          kubectl get pods -n monitoring -o wide
+
+          echo ""
+          echo " Derniers événements dans le namespace monitoring (diagnostic)..."
+          kubectl get events -n monitoring --sort-by='.lastTimestamp' | tail -20    
 
       - name: Deploy Traefik Ingress
         run: |
