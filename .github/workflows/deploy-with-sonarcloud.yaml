@@ -183,7 +183,22 @@ jobs:
                monitoring.coreos.com_thanosrulers.yaml; do
             kubectl apply --server-side --force-conflicts -f $BASE_URL/$crd
           done
-          echo " CRDs installées avec succès"   
+          echo " CRDs installées avec succès"
+
+      - name: Wait for previous Helm operations to complete
+        run: |
+          echo " Vérification de l'absence d'opérations Helm en cours..."
+          i=0
+          while helm history monitoring-stack -n monitoring >/dev/null 2>&1 && [ $i -lt 10 ]; do
+            echo " Une opération Helm est encore en cours... Tentative $((i+1))/10"
+            sleep 30
+            i=$((i+1))
+          done
+          if [ $i -eq 10 ]; then
+            echo " Échec : Helm semble toujours occupé après 5 minutes."
+            exit 1
+          fi
+          echo " Aucune opération Helm en cours, poursuite du déploiement."
 
       - name: Deploy monitoring stack (clean installation)
         run: |
@@ -217,7 +232,8 @@ jobs:
             --atomic \
             --debug \
             --wait --timeout=40m
-          echo " Monitoring déployé"
+
+          echo " Monitoring déployé avec succès."
 
       - name: Diagnostic en cas d'échec
         if: failure()
