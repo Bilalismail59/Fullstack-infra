@@ -183,12 +183,12 @@ jobs:
                monitoring.coreos.com_thanosrulers.yaml; do
             kubectl apply --server-side --force-conflicts -f $BASE_URL/$crd
           done
-          echo " CRDs installées avec succès"    
+          echo " CRDs installées avec succès"   
 
       - name: Deploy monitoring stack (clean installation)
         run: |
           echo " Déploiement du monitoring stack..."
-          
+    
           helm upgrade --install monitoring-stack bitnami/kube-prometheus \
             --namespace monitoring \
             --create-namespace \
@@ -204,7 +204,7 @@ jobs:
             --set grafana.resources.requests.cpu=100m \
             --set grafana.resources.limits.memory=512Mi \
             --set grafana.resources.limits.cpu=200m \
-            --set nodeExporter.daemonset.enabled=false
+            --set nodeExporter.daemonset.enabled=false \
             --atomic \
             --debug \
             --wait --timeout=40m
