@@ -204,6 +204,7 @@ jobs:
             --set grafana.resources.requests.cpu=100m \
             --set grafana.resources.limits.memory=512Mi \
             --set grafana.resources.limits.cpu=200m \
+            --set nodeExporter.daemonset.enabled=false
             --atomic \
             --debug \
             --wait --timeout=40m
