@@ -199,6 +199,7 @@ jobs:
             exit 1
           fi
           echo " Aucune opération Helm en cours, poursuite du déploiement."
+
       - name: Force cleanup if Helm is stuck
         if: failure()
         run: |
@@ -248,6 +249,42 @@ jobs:
             --wait --timeout=40m
 
           echo " Monitoring déployé avec succès."
+
+      - name: Retry Deploy monitoring stack (after cleanup)
+        if: failure()
+        run: |
+          echo "🔁 Nouvelle tentative de déploiement du monitoring stack après nettoyage forcé..."
+
+          helm upgrade --install monitoring-stack bitnami/kube-prometheus \
+            --namespace monitoring \
+            --create-namespace \
+            --set prometheus.persistence.size=10Gi \
+            --set grafana.persistence.size=5Gi \
+            --set grafana.service.type=LoadBalancer \
+            --set alertmanager.persistence.size=5Gi \
+            --set prometheus.resources.requests.memory=512Mi \
+            --set prometheus.resources.requests.cpu=250m \
+            --set prometheus.resources.limits.memory=1Gi \
+            --set prometheus.resources.limits.cpu=500m \
+            --set grafana.resources.requests.memory=256Mi \
+            --set grafana.resources.requests.cpu=100m \
+            --set grafana.resources.limits.memory=512Mi \
+            --set grafana.resources.limits.cpu=200m \
+            --set operator.resources.requests.cpu=100m \
+            --set operator.resources.requests.memory=256Mi \
+            --set operator.resources.limits.cpu=200m \
+            --set operator.resources.limits.memory=512Mi \
+            --set nodeExporter.enabled=false \
+            --set kubeScheduler.enabled=false \
+            --set kubeControllerManager.enabled=false \
+            --set coreDns.enabled=false \
+            --set kubeEtcd.enabled=false \
+            --set kubeProxy.enabled=false \
+            --atomic \
+            --debug \
+            --wait --timeout=40m
+
+          echo " Deuxième tentative : monitoring déployé avec succès."    
 
       - name: Diagnostic en cas d'échec
         if: failure()
