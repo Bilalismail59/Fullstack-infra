@@ -204,6 +204,8 @@ jobs:
             --set grafana.resources.requests.cpu=100m \
             --set grafana.resources.limits.memory=512Mi \
             --set grafana.resources.limits.cpu=200m \
+            --atomic \
+            --debug \
             --wait --timeout=40m
           echo " Monitoring déployé"
 
