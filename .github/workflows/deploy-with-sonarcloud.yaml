@@ -204,7 +204,16 @@ jobs:
             --set grafana.resources.requests.cpu=100m \
             --set grafana.resources.limits.memory=512Mi \
             --set grafana.resources.limits.cpu=200m \
-            --set nodeExporter.daemonset.enabled=false \
+            --set operator.resources.requests.cpu=100m \
+            --set operator.resources.requests.memory=256Mi \
+            --set operator.resources.limits.cpu=200m \
+            --set operator.resources.limits.memory=512Mi \
+            --set nodeExporter.enabled=false \
+            --set kubeScheduler.enabled=false \
+            --set kubeControllerManager.enabled=false \
+            --set coreDns.enabled=false \
+            --set kubeEtcd.enabled=false \
+            --set kubeProxy.enabled=false \
             --atomic \
             --debug \
             --wait --timeout=40m
