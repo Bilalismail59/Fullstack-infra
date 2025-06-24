@@ -196,24 +196,28 @@ jobs:
           done
           if [ $i -eq 10 ]; then
             echo " Échec : Helm semble toujours occupé après 5 minutes."
-            exit 1
+            echo " Déclenchement du nettoyage forcé dans l'étape suivante..."
+            exit 0  # <- NE PAS interrompre brutalement
           fi
           echo " Aucune opération Helm en cours, poursuite du déploiement."
 
       - name: Force cleanup if Helm is stuck
-        if: failure()
+        if: always()
         run: |
           echo " Opération Helm bloquée détectée. Nettoyage forcé en cours..."
-    
+
           echo " Suppression du release 'monitoring-stack'..."
           helm uninstall monitoring-stack -n monitoring || echo " Aucun release à supprimer"
 
           echo " Suppression des ressources dans le namespace monitoring..."
           kubectl delete all --all -n monitoring || echo " Namespace monitoring nettoyé"
           kubectl delete pvc --all -n monitoring || echo " PVC supprimés"
+
+          echo " Suppression des CRDs Prometheus..."
           kubectl delete crd prometheuses.monitoring.coreos.com prometheusrules.monitoring.coreos.com \
           servicemonitors.monitoring.coreos.com alertmanagers.monitoring.coreos.com \
-          podmonitors.monitoring.coreos.com thanosrulers.monitoring.coreos.com || echo " CRDs supprimées"    
+          podmonitors.monitoring.coreos.com thanosrulers.monitoring.coreos.com || echo " CRDs supprimées"
+   
 
       - name: Deploy monitoring stack (clean installation)
         run: |
