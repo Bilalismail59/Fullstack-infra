@@ -164,12 +164,12 @@ jobs:
     
           # Supprimer les CRDs
           for crd in prometheuses.monitoring.coreos.com \  
-            prometheusrules.monitoring.coreos.com \
-            servicemonitors.monitoring.coreos.com \
-            alertmanagers.monitoring.coreos.com \
-            podmonitors.monitoring.coreos.com \
-            thanosrulers.monitoring.coreos.com; do
-          kubectl delete crd $crd --wait=false 2>/dev/null || echo "$crd non trouvé"
+              prometheusrules.monitoring.coreos.com \
+              servicemonitors.monitoring.coreos.com \
+              alertmanagers.monitoring.coreos.com \
+              podmonitors.monitoring.coreos.com \
+              thanosrulers.monitoring.coreos.com; do
+              kubectl delete crd $crd --wait=false 2>/dev/null || echo "$crd non trouvé"
           done
     
           # Supprimer les ressources restantes
