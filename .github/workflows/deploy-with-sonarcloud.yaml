@@ -222,6 +222,7 @@ jobs:
             --set kubeEtcd.enabled=false \
             --set kubeProxy.enabled=false \
             --set grafana.enabled=false \
+            --set nodeExporter.enabled=false \
             --debug \
             --wait --timeout=45m \
             --atomic=false
