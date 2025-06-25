@@ -155,6 +155,7 @@ jobs:
           # Supprimer les installations Helm existantes
           helm uninstall prometheus -n monitoring --wait --timeout 5m 2>/dev/null || echo "Aucune installation prometheus trouvée"
           helm uninstall monitoring-stack -n monitoring --wait --timeout 5m 2>/dev/null || echo "Aucune installation monitoring-stack trouvée"
+          helm uninstall kube-prometheus-stack -n monitoring --wait --timeout 5m 2>/dev/null || echo "Aucune installation kube-prometheus-stack trouvée"
           
           # Attendre que les pods soient supprimés
           echo "Attente de suppression des pods..."
@@ -175,63 +176,43 @@ jobs:
           
           echo " Nettoyage terminé"
 
-      - name: Install Prometheus CRDs
+      - name: Deploy monitoring stack with Prometheus Community Chart
         run: |
-          echo " Installation des CRDs Prometheus..."
+          echo " Déploiement du monitoring stack avec Prometheus Community..."
           
-          BASE_URL="https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd"
-          
-          kubectl apply --server-side --force-conflicts -f ${BASE_URL}/monitoring.coreos.com_alertmanagers.yaml --timeout=3m
-          sleep 2
-          kubectl apply --server-side --force-conflicts -f ${BASE_URL}/monitoring.coreos.com_podmonitors.yaml --timeout=3m
-          sleep 2
-          kubectl apply --server-side --force-conflicts -f ${BASE_URL}/monitoring.coreos.com_prometheuses.yaml --timeout=3m
-          sleep 2
-          kubectl apply --server-side --force-conflicts -f ${BASE_URL}/monitoring.coreos.com_prometheusrules.yaml --timeout=3m
-          sleep 2
-          kubectl apply --server-side --force-conflicts -f ${BASE_URL}/monitoring.coreos.com_servicemonitors.yaml --timeout=3m
-          sleep 2
-          kubectl apply --server-side --force-conflicts -f ${BASE_URL}/monitoring.coreos.com_thanosrulers.yaml --timeout=3m
-          
-          echo " CRDs installés"
-          
-          # Attendre que les CRDs soient établis
-          kubectl wait --for condition=established --timeout=5m crd prometheuses.monitoring.coreos.com
-
-      - name: Deploy monitoring stack (minimal and fast)
-        run: |
-          echo " Déploiement du monitoring stack minimal..."
-          
-          helm upgrade --install monitoring-stack bitnami/kube-prometheus \
+          helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
             --namespace monitoring \
             --create-namespace \
-            --set prometheus.persistence.size=10Gi \
-            --set alertmanager.persistence.size=5Gi \
-            --set prometheus.resources.requests.memory=512Mi \
-            --set prometheus.resources.requests.cpu=250m \
-            --set prometheus.resources.limits.memory=1Gi \
-            --set prometheus.resources.limits.cpu=500m \
-            --set operator.resources.requests.cpu=100m \
-            --set operator.resources.requests.memory=256Mi \
-            --set operator.resources.limits.cpu=200m \
-            --set operator.resources.limits.memory=512Mi \
-            --set node-exporter.enabled=false \
-            --set kube-state-metrics.enabled=false \
+            --set prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=10Gi \
+            --set prometheus.prometheusSpec.resources.requests.memory=512Mi \
+            --set prometheus.prometheusSpec.resources.requests.cpu=250m \
+            --set prometheus.prometheusSpec.resources.limits.memory=1Gi \
+            --set prometheus.prometheusSpec.resources.limits.cpu=500m \
+            --set alertmanager.alertmanagerSpec.storage.volumeClaimTemplate.spec.resources.requests.storage=5Gi \
+            --set alertmanager.alertmanagerSpec.resources.requests.memory=256Mi \
+            --set alertmanager.alertmanagerSpec.resources.requests.cpu=100m \
+            --set alertmanager.alertmanagerSpec.resources.limits.memory=512Mi \
+            --set alertmanager.alertmanagerSpec.resources.limits.cpu=200m \
+            --set prometheusOperator.resources.requests.memory=256Mi \
+            --set prometheusOperator.resources.requests.cpu=100m \
+            --set prometheusOperator.resources.limits.memory=512Mi \
+            --set prometheusOperator.resources.limits.cpu=200m \
+            --set nodeExporter.enabled=false \
+            --set kubeStateMetrics.enabled=false \
+            --set grafana.enabled=false \
             --set kubelet.enabled=false \
-            --set kubeScheduler.enabled=false \
+            --set kubeApiServer.enabled=false \
             --set kubeControllerManager.enabled=false \
             --set coreDns.enabled=false \
             --set kubeEtcd.enabled=false \
+            --set kubeScheduler.enabled=false \
             --set kubeProxy.enabled=false \
-            --set grafana.enabled=false \
+            --set prometheus.service.type=LoadBalancer \
+            --set alertmanager.service.type=LoadBalancer \
             --debug \
-            --wait --timeout=20m \
-            --atomic=false
+            --wait --timeout=15m
           
-          echo " Monitoring stack minimal déployé"
-
-          echo " Nettoyage du DaemonSet node-exporter s'il a été déployé par erreur..."
-          kubectl delete daemonset monitoring-stack-node-exporter -n monitoring --ignore-not-found
+          echo " Monitoring stack déployé avec Prometheus Community"
 
       - name: Deploy Traefik Ingress
         run: |
@@ -257,7 +238,7 @@ jobs:
           echo " SERVICES DÉPLOYÉS :"
           echo "• PostgreSQL Production"
           echo "• WordPress Production" 
-          echo "• Monitoring (Prometheus + Alertmanager SEULEMENT)"
+          echo "• Monitoring (Prometheus + Alertmanager) - Prometheus Community Chart"
           echo "• Traefik Ingress"
           echo "• SonarCloud (Analyse de code)"
           echo ""
@@ -281,15 +262,54 @@ jobs:
           # Attendre que Prometheus soit prêt
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=prometheus -n monitoring --timeout=300s || echo "Prometheus pas encore prêt"
           
+          # Attendre que Alertmanager soit prêt
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=alertmanager -n monitoring --timeout=300s || echo "Alertmanager pas encore prêt"
+          
           echo " Validation terminée"
           
           echo ""
           echo " URLS D'ACCÈS :"
           WORDPRESS_IP=$(kubectl get svc wordpress-prod -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
+          PROMETHEUS_IP=$(kubectl get svc kube-prometheus-stack-prometheus -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
+          ALERTMANAGER_IP=$(kubectl get svc kube-prometheus-stack-alertmanager -n monitoring -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "En cours d'attribution...")
           
           echo "• WordPress : http://$WORDPRESS_IP"
-          echo "• Prometheus : kubectl port-forward -n monitoring svc/monitoring-stack-kube-prom-prometheus 9090:9090"
+          echo "• Prometheus : http://$PROMETHEUS_IP:9090"
+          echo "• Alertmanager : http://$ALERTMANAGER_IP:9093"
           echo "• SonarCloud : https://sonarcloud.io"
+
+      - name: Verify no unwanted components
+        run: |
+          echo " VÉRIFICATION DES COMPOSANTS NON DÉSIRÉS"
+          echo "=========================================="
+          
+          # Vérifier qu'il n'y a pas de Node Exporter
+          if kubectl get daemonset -n monitoring | grep -i node-exporter; then
+            echo " ERREUR : Node Exporter détecté malgré la désactivation"
+            kubectl get daemonset -n monitoring
+          else
+            echo " Node Exporter correctement désactivé"
+          fi
+          
+          # Vérifier qu'il n'y a pas de Kube State Metrics
+          if kubectl get deployment -n monitoring | grep -i kube-state-metrics; then
+            echo " ERREUR : Kube State Metrics détecté malgré la désactivation"
+            kubectl get deployment -n monitoring
+          else
+            echo " Kube State Metrics correctement désactivé"
+          fi
+          
+          # Vérifier qu'il n'y a pas de Grafana
+          if kubectl get deployment -n monitoring | grep -i grafana; then
+            echo " ERREUR : Grafana détecté malgré la désactivation"
+            kubectl get deployment -n monitoring
+          else
+            echo " Grafana correctement désactivé"
+          fi
+          
+          echo ""
+          echo " COMPOSANTS ACTIFS DANS LE MONITORING :"
+          kubectl get all -n monitoring
 
   # Job 3: Notification de succès
   notify-success:
@@ -301,22 +321,25 @@ jobs:
     steps:
       - name: Success notification
         run: |
-          echo " DÉPLOIEMENT COMPLET RÉUSSI !"
-          echo "=============================="
+          echo " DÉPLOIEMENT COMPLET RÉUSSI AVEC PROMETHEUS COMMUNITY !"
+          echo "========================================================"
           echo ""
           echo " COMPOSANTS DÉPLOYÉS :"
           echo "• SonarCloud : Analyse de code automatique"
           echo "• PostgreSQL : Base de données production"
           echo "• WordPress : Application web"
-          echo "• Monitoring : Prometheus + Alertmanager (MINIMAL)"
+          echo "• Monitoring : Prometheus + Alertmanager (Prometheus Community Chart)"
           echo "• Ingress : Traefik"
           echo ""
           echo " LIENS UTILES :"
           echo "• SonarCloud : https://sonarcloud.io/project/overview?id=Bilalismeil59_Fullstack-infra"
           echo "• GitHub Actions : ${{ github.server_url }}/${{ github.repository }}/actions"
           echo ""
-          echo " CORRECTIONS FINALES :"
-          echo "• Syntaxe Node Exporter corrigée : node-exporter.enabled=false"
-          echo "• Kube State Metrics désactivé également"
-          echo "• Configuration minimale pour déploiement rapide"
-          echo "• Timeout réduit à 20 minutes"
+          echo " AMÉLIORATIONS APPORTÉES :"
+          echo "• Chart Prometheus Community (plus fiable que Bitnami)"
+          echo "• Node Exporter vraiment désactivé"
+          echo "• Kube State Metrics désactivé"
+          echo "• Grafana désactivé pour économiser les ressources"
+          echo "• LoadBalancers pour Prometheus et Alertmanager"
+          echo "• Timeout optimisé à 15 minutes"
+          echo "• Vérification automatique des composants non désirés"
