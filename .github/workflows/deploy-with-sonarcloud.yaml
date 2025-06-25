@@ -176,8 +176,12 @@ jobs:
           
           echo " Nettoyage terminé"
 
-      - name: Deploy monitoring stack with Prometheus Community Chart
+      - name: Add Prometheus Community Helm Repo
         run: |
+          echo " Ajout du dépôt Prometheus Community..."
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update    
+      
           echo " Déploiement du monitoring stack avec Prometheus Community..."
           
           helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
