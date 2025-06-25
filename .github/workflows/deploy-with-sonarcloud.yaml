@@ -198,9 +198,9 @@ jobs:
           # Attendre que les CRDs soient établis
           kubectl wait --for condition=established --timeout=5m crd prometheuses.monitoring.coreos.com
 
-      - name: Deploy monitoring stack (simplified)
+      - name: Deploy monitoring stack (minimal and fast)
         run: |
-          echo " Déploiement du monitoring stack..."
+          echo " Déploiement du monitoring stack minimal..."
           
           helm upgrade --install monitoring-stack bitnami/kube-prometheus \
             --namespace monitoring \
@@ -215,6 +215,8 @@ jobs:
             --set operator.resources.requests.memory=256Mi \
             --set operator.resources.limits.cpu=200m \
             --set operator.resources.limits.memory=512Mi \
+            --set node-exporter.enabled=false \
+            --set kube-state-metrics.enabled=false \
             --set kubelet.enabled=false \
             --set kubeScheduler.enabled=false \
             --set kubeControllerManager.enabled=false \
@@ -222,12 +224,14 @@ jobs:
             --set kubeEtcd.enabled=false \
             --set kubeProxy.enabled=false \
             --set grafana.enabled=false \
-            --set nodeExporter.enabled=false \
             --debug \
-            --wait --timeout=45m \
+            --wait --timeout=20m \
             --atomic=false
           
-          echo " Monitoring stack déployé"
+          echo " Monitoring stack minimal déployé"
+
+          echo " Nettoyage du DaemonSet node-exporter s'il a été déployé par erreur..."
+          kubectl delete daemonset monitoring-stack-node-exporter -n monitoring --ignore-not-found
 
       - name: Deploy Traefik Ingress
         run: |
@@ -253,7 +257,7 @@ jobs:
           echo " SERVICES DÉPLOYÉS :"
           echo "• PostgreSQL Production"
           echo "• WordPress Production" 
-          echo "• Monitoring (Prometheus + Alertmanager)"
+          echo "• Monitoring (Prometheus + Alertmanager SEULEMENT)"
           echo "• Traefik Ingress"
           echo "• SonarCloud (Analyse de code)"
           echo ""
@@ -304,15 +308,15 @@ jobs:
           echo "• SonarCloud : Analyse de code automatique"
           echo "• PostgreSQL : Base de données production"
           echo "• WordPress : Application web"
-          echo "• Monitoring : Prometheus + Alertmanager"
+          echo "• Monitoring : Prometheus + Alertmanager (MINIMAL)"
           echo "• Ingress : Traefik"
           echo ""
           echo " LIENS UTILES :"
           echo "• SonarCloud : https://sonarcloud.io/project/overview?id=Bilalismeil59_Fullstack-infra"
           echo "• GitHub Actions : ${{ github.server_url }}/${{ github.repository }}/actions"
           echo ""
-          echo " CORRECTIONS APPLIQUÉES :"
-          echo "• Erreur de syntaxe CRDs corrigée"
-          echo "• Grafana désactivé pour réduire les ressources"
-          echo "• Timeouts optimisés (45 minutes)"
-          echo "• Nettoyage automatique amélioré"
+          echo " CORRECTIONS FINALES :"
+          echo "• Syntaxe Node Exporter corrigée : node-exporter.enabled=false"
+          echo "• Kube State Metrics désactivé également"
+          echo "• Configuration minimale pour déploiement rapide"
+          echo "• Timeout réduit à 20 minutes"
