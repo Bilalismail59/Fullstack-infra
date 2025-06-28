@@ -46,3 +46,19 @@ terraform.tfvars
 .vscode/
 .idea/
 Thumbs.db
+
+# Coverage & Sonar
+.coverage
+coverage.xml
+.scannerwork/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+backend-app/venv/
+
+# sonar-project.properties si sensible à inclure ou définir en CI
+
