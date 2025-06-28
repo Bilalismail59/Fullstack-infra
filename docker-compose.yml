@@ -14,8 +14,9 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`localhost`) && PathPrefix(`/`)"
-      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+      - "traefik.http.routers.frontend.rule=Host(`fullstack-.duckdns.org`) && PathPrefix(`/app`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
 
   # Backend Flask API
   backend:
@@ -25,9 +26,10 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - FLASK_ENV=production
-      - DATABASE_URL=mysql://wordpress:wordpress@mysql:3306/wordpress
-      - REDIS_URL=redis://redis:6379/0
+    - FLASK_ENV=production
+    - DATABASE_URL=mysql://wordpress:wordpress@mysql:3306/wordpress
+    - REDIS_URL=redis://redis:6379/0
+    - SECRET_KEY=asdf#FGSgvasgf$5$WGT
     depends_on:
       - mysql
       - redis
@@ -36,7 +38,9 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`localhost`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.rule=Host(`fullstack-.duckdns.org`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.priority=20"
       - "traefik.http.services.backend.loadbalancer.server.port=5000"
 
   # MySQL Database
@@ -74,7 +78,8 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.wordpress.rule=Host(`localhost`) && PathPrefix(`/wp`)"
+      - "traefik.http.routers.wordpress.rule=Host(`fullstack-.duckdns.org`)"
+      - "traefik.http.routers.wordpress.entrypoints=web"
       - "traefik.http.services.wordpress.loadbalancer.server.port=80"
 
   # Redis Cache

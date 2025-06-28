@@ -1,0 +1,111 @@
+.
+├── Makefile
+├── README.md
+├── SONARCLOUD_SETUP_GUIDE.md
+├── ansible
+│   ├── ansible.cfg
+│   ├── common_setup.yml
+│   ├── inventory.ini
+│   └── setup_preprod.yml
+├── backend-app
+│   ├── Dockerfile
+│   ├── Dockerfile.dev
+│   ├── coverage.xml
+│   ├── requirements.txt
+│   ├── src
+│   │   ├── app.py
+│   │   ├── database
+│   │   ├── main.py
+│   │   ├── models
+│   │   ├── routes
+│   │   └── static
+│   ├── tests
+│   │   ├── __init__.py
+│   │   ├── test_dummy.py
+│   │   ├── test_main.py
+│   │   └── test_user.py
+│   └── trigger.txt
+├── backups
+├── cloud-sql-proxy
+├── docker-compose.dev.yml
+├── docker-compose.monitoring.yml
+├── docker-compose.sonarqube.yml
+├── docker-compose.test.yml
+├── docker-compose.yml
+├── dummy.txt
+├── frontend-app
+│   ├── Dockerfile
+│   ├── Dockerfile.dev
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── nginx.conf
+│   ├── package.json
+│   ├── pnpm-lock.yaml
+│   ├── public
+│   │   └── vite.svg
+│   ├── requirements.txt
+│   ├── src
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   ├── assets
+│   │   ├── components
+│   │   ├── hooks
+│   │   ├── index.css
+│   │   ├── index.html
+│   │   ├── lib
+│   │   └── main.jsx
+│   ├── trigger.txt
+│   └── vite.config.js
+├── kubernetes
+│   ├── backend.yaml
+│   ├── cert-manager-clusterissuer.yaml
+│   ├── frontend.yaml
+│   ├── mysql.yaml
+│   ├── postgres-low-resources.yaml
+│   ├── postgres-optimized.yaml
+│   ├── prometheus-crds
+│   │   └── kube-prometheus
+│   ├── sonarqube-low-resources.yaml
+│   ├── sonarqube-values.yaml
+│   ├── traefik-backend-ingressroute.yaml
+│   ├── traefik-frontend-ingressroute.yaml
+│   ├── traefik-middleware-https-redirect.yaml
+│   ├── traefik-middleware-strip-prefix.yaml
+│   ├── wordpress-values.yaml
+│   └── wordpress.yaml
+├── monitoring
+│   ├── alertmanager-config.yml
+│   ├── grafana
+│   │   ├── dashboard
+│   │   ├── dashboards
+│   │   └── datasources
+│   ├── prometheus-alerts.yml
+│   └── prometheus.yml
+├── mysql
+│   └── init
+├── scripts
+│   ├── configure-sonarqube.sh
+│   ├── deploy-sonarqube-with-passcode.sh
+│   ├── diagnose-sonarqube-timeout.sh
+│   ├── diagnose-wordpress.sh
+│   ├── find-sonarqube-version.sh
+│   ├── fix-sonarqube-final.sh
+│   ├── install-prometheus.sh
+│   ├── monitor-sonarqube-api.sh
+│   ├── performance-tests.sh
+│   ├── scan-sonar.sh
+│   ├── setup-grafana-dashboards.sh
+│   └── validate-infrastructure.sh
+├── sonar-project.properties
+├── structure-clean.txt
+├── terraform
+│   ├── import.sh
+│   ├── main.tf
+│   ├── terraform.tfstate
+│   ├── terraform.tfstate.backup
+│   ├── terraform.tfvars
+│   ├── variables.tf
+│   └── versions.tf
+└── todo.md
+
+29 directories, 80 files

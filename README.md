@@ -1,60 +1,127 @@
-# Projet de Déploiement Full Stack sur Google Cloud
+#  Projet de Déploiement Full Stack sur Google Cloud
 
-Ce projet vise à déployer une application full stack avec une architecture trois tiers sur Google Cloud Platform (GCP). L'objectif est de mettre en place une infrastructure sécurisée et supervisée, avec des environnements de pré-production et de production.
+Ce projet a pour objectif de déployer une application full stack avec une architecture trois tiers sur **Google Cloud Platform (GCP)**. L’objectif est de mettre en place une **infrastructure automatisée, sécurisée et supervisée**, avec deux environnements : **pré-production** et **production**.
 
-## Architecture
-L'application sera composée de trois tiers distincts :
-- **Frontend** : Application web basée sur un template Vite.
-- **Backend** : CMS WordPress.
-- **Base de données** : Base de données hébergée sur un serveur dédié.
+---
 
-## Outils et Technologies
-- **Cloud Provider** : Google Cloud Platform (GCP)
-- **Infrastructure as Code (IaC)** : Terraform
-- **Automatisation de la configuration** : Ansible
-- **Orchestration de conteneurs** : Kubernetes (K8S)
-- **Reverse Proxy / Load Balancer** : Traefik
-- **Intégration Continue / Déploiement Continu (CI/CD)** : GitHub Actions
-- **Supervision** : Prometheus et Grafana
-- **Qualité du code** : SonarQube
+##  Architecture
 
-## Environnements
-Deux environnements seront mis en place :
-- **Pré-production (preprod)** : Environnement de test et de validation.
-- **Production (prod)** : Environnement de déploiement final.
+L'application est composée de trois couches distinctes :
 
-## Objectifs du Projet
-1.  **Automatisation du déploiement de l'infrastructure** :
-    - Création de serveurs et déploiement de l'infrastructure via des scripts.
-    - Sécurisation de l'infrastructure.
-    - Mise en production dans le cloud.
-2.  **Déploiement continu de l'application** :
-    - Préparation d'un environnement de test.
-    - Gestion du stockage de données.
-    - Gestion des conteneurs.
-    - Automatisation de la mise en production via une plateforme (GitHub Actions).
-3.  **Supervision des services déployés** :
-    - Mise en place de statistiques de service.
-    - Exploitation d'une solution de supervision (Prometheus, Grafana).
+-  **Frontend** : Application web React basée sur Vite
+-  **Backend** : CMS WordPress conteneurisé
+-  **Base de données** : MariaDB déployée dans un conteneur dédié
 
-## Sécurité
-L'infrastructure sera configurée de manière restrictive pour éviter toute compromission, incluant :
-- Droits d'accès stricts.
-- Configuration de pare-feu.
-- Utilisation de SSL/TLS.
+---
 
-## Qualité du Code
-SonarQube sera intégré aux GitHub Actions pour assurer la qualité du code et l'intégration des vérifications.
+##  Outils et Technologies
 
-## Déploiement
-En cas de modification du code (à minima le frontend), un workflow GitHub Actions déclenchera le déploiement en production.
+| Catégorie              | Outils utilisés                               |
+|------------------------|-----------------------------------------------|
+| Cloud Provider         | Google Cloud Platform (GCP)                   |
+| Infrastructure as Code | Terraform                                     |
+| Configuration système  | Ansible                                       |
+| Conteneurisation       | Docker + Kubernetes (K8s)                     |
+| Load Balancer / Proxy  | Traefik                                       |
+| CI/CD                  | GitHub Actions                                |
+| Supervision            | Prometheus, Grafana, Netdata                  |
+| Qualité du code        | SonarQube (via SonarCloud)                    |
 
-## Fichiers Clés
-- `primordial-port-462408-q7-f0332c84ef23.json`: Clé de compte de service Google Cloud pour l'authentification.
-- `todo.md`: Fichier de suivi des tâches du projet.
+---
+
+##  Environnements
+
+-  **Pré-production** : pour les tests et la validation
+-  **Production** : pour la mise en ligne officielle
+
+---
+
+##  Objectifs du Projet
+
+###  1. Automatisation de l’Infrastructure
+- Déploiement via Terraform + Ansible
+- Sécurisation par firewall, users limités, etc.
+- Infrastructure scalable sur GCP
+
+###  2. Déploiement Continu (CI/CD)
+- Workflows GitHub Actions : build → test → deploy
+- Gestion du stockage et des volumes persistants
+- Docker Compose (en local) / K8s (en cloud)
+
+###  3. Supervision et Observabilité
+- Dashboards Prometheus + Grafana
+- Alerting basique avec Alertmanager
+- Netdata pour la supervision système
+
+---
+
+##  Sécurité
+
+- Accès SSH restreint et surveillé
+- Séparation des environnements
+- Pare-feu strict (GCP VPC)
+- SSL/TLS activé via Traefik
+- Scan de vulnérabilités via OWASP ZAP *(à venir)*
+
+---
+
+##  Qualité du Code
+
+- Intégration continue de SonarCloud dans les workflows
+- Analyse de la couverture de tests avec `pytest` + `coverage`
+- Revue des hotspots de sécurité
+
+>  Qualité actuelle : **Passed** avec 0 bugs, 3 code smells, 13 security hotspots
+
+---
+
+##  Déploiement Automatisé
+
+- Tout **push sur `main`** déclenche une analyse + déploiement
+- Les workflows CI/CD automatisent :
+  - L’analyse SonarCloud
+  - Les tests unitaires
+  - Le déploiement sur GCP via SSH + Docker/K8s
+
+---
+
+##  Fichiers Clés
+
+| Fichier                            | Description                                      |
+|-----------------------------------|--------------------------------------------------|
+| `primordial-port-462408-*.json`  | Clé d’authentification GCP (service account)     |
+| `todo.md`                         | Liste des tâches restantes                       |
+| `.github/workflows/deploy.yml`   | Déploiement GitHub Actions                       |
+| `terraform/`                      | Code IaC pour l’infra (VPC, instances, etc.)     |
+| `ansible/`                        | Playbooks de configuration                       |
+| `preprod/` et `prod/`            | Déploiement des services en environnements isolés|
+
+---
+
+##  Badges de Qualité (SonarCloud)
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
 
 
 
-# trigger
-# trigger
-# trigger
+---
+
+##  Prochaines Améliorations
+
+- [ ]  Scanner OWASP ZAP en CI
+- [ ]  Ajout de tests e2e
+- [ ]  Alertes Prometheus + Email
+- [ ]  Génération auto de documentation technique
+
+---
+
+##  Auteur
+
+**Ismail BILALI Issa Iyawa**  
+Administrateur Systèmes DevOps  
+ ismobilal@gmail.com
+
+---
+

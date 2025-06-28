@@ -70,17 +70,19 @@ receivers:
           <em>Environnement :</em> {{ .Labels.environment }}<br>
           <em>Sévérité :</em> {{ .Labels.severity }}<br>
           {{ end }}
-    slack_configs:
-      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
-        channel: '#alerts-warning'
-        title: 'Alerte - {{ .GroupLabels.alertname }}'
+
+  - name: 'critical-alerts'
+    slack_configs:        
+      - api_url: 'https://hooks.slack.com/services/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'
+        channel: '#alerts-devops'
+        title: ' Alerte Critique - {{ .GroupLabels.alertname }}'
         text: |
           {{ range .Alerts }}
           *{{ .Annotations.summary }}*
           {{ .Annotations.description }}
           Environnement: {{ .Labels.environment }}
           {{ end }}
-        color: 'warning'
+        color: 'danger'
 
   - name: 'preprod-alerts'
     email_configs:
