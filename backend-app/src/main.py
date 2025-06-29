@@ -1,15 +1,16 @@
 import os
 import sys
-import secrets
-
-# Ajout du répertoire parent dans sys.path (ne pas modifier)
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
+from dotenv import load_dotenv
 from flask import Flask, send_from_directory, jsonify
 from flask_cors import CORS
 from src.models.user import db
 from src.routes.user import user_bp
 
+# Ajout du répertoire parent dans sys.path (ne pas modifier)
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+# Chargement des variables d'environnement depuis .env
+load_dotenv()
 
 def create_app():
     """Factory de création de l'application Flask"""
@@ -18,22 +19,26 @@ def create_app():
         static_folder=os.path.join(os.path.dirname(__file__), 'static')
     )
 
-    # Configuration de l'application
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
+    # Sécurité : forcer la présence d'une clé secrète en variable d'env
+    if not os.environ.get("SECRET_KEY"):
+        raise RuntimeError("SECRET_KEY must be set in environment variables.")
+    app.config['SECRET_KEY'] = os.environ["SECRET_KEY"]
+
+    # Configuration de la base de données SQLite
     app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # Activation de CORS (CSRF volontairement non activé, car API REST uniquement)
-    # Safe: This API is stateless and consumed by a SPA, CSRF is not required.
+    # Activer CORS pour toutes les routes (API REST uniquement)
     CORS(app)
 
     # Initialisation de la base de données
     db.init_app(app)
 
-    # Enregistrement des Blueprints
+    # Enregistrement des routes (Blueprint)
     app.register_blueprint(user_bp, url_prefix='/api')
 
-    # Routes d'API
+    # === ROUTES DE L'APPLICATION ===
+
     @app.route('/api/status')
     def status():
         """Statut de l'application"""
@@ -93,5 +98,5 @@ def create_app():
 if __name__ == '__main__':  # pragma: no cover
     app = create_app()
     with app.app_context():
-        db.create_all()  # À automatiser séparément en prod avec Alembic ou script
+        db.create_all()  # À automatiser en production
     app.run(host='0.0.0.0', port=5000, debug=True)

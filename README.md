@@ -65,13 +65,31 @@ L'application est composée de trois couches distinctes :
 
 ---
 
-##  Qualité du Code
+##  Analyse de Qualité et Sécurité (SonarQube)
 
-- Intégration continue de SonarCloud dans les workflows
-- Analyse de la couverture de tests avec `pytest` + `coverage`
-- Revue des hotspots de sécurité
+L’analyse statique de code est réalisée avec **SonarCloud**, déclenchée automatiquement à chaque push via GitHub Actions.
+- Intégration continue avec SonarCloud dans les workflows GitHub Actions
+- Analyse automatique de la **couverture de tests** (`pytest` + `coverage`)
+- **Détection des bugs, code smells, duplications, et hotspots de sécurité**
+- Respect des **standards PEP8** et bonnes pratiques Python
+- Badges visibles dans le README pour suivre :
+  - Le **Quality Gate**
+  - Le **taux de couverture**
+  - La **maintenabilité**
+- **Bugs** : 0  
+- **Code Smells** : 3  
+- **Hotspots de sécurité** : 13 →  **100% Revu**  
+- **Qualité globale** :  Passed  
+- **Couverture des tests** :  87.8 %
 
->  Qualité actuelle : **Passed** avec 0 bugs, 3 code smells, 13 security hotspots
+###  Badges SonarCloud
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
+
 
 ---
 
@@ -98,22 +116,12 @@ L'application est composée de trois couches distinctes :
 
 ---
 
-##  Badges de Qualité (SonarCloud)
-
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
-[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
-
-
-
----
-
 ##  Prochaines Améliorations
 
-- [ ]  Scanner OWASP ZAP en CI
-- [ ]  Ajout de tests e2e
-- [ ]  Alertes Prometheus + Email
-- [ ]  Génération auto de documentation technique
+-  Scanner OWASP ZAP en CI
+-  Ajout de tests e2e
+-  Alertes Prometheus + Email
+-  Génération auto de documentation technique
 
 ---
 

@@ -1,3 +1,4 @@
+
 # ====== Node.js / Frontend ======
 frontend-app/node_modules/
 frontend-app/dist/
@@ -62,3 +63,14 @@ backend-app/venv/
 
 # sonar-project.properties si sensible à inclure ou définir en CI
 
+# Fichiers SQLite locaux
+backend-app/src/database/app.db
+
+# Fichiers de couverture
+backend-app/.coverage
+coverage.xml
+backend-app/htmlcov/
+
+# Bytecode Python (au cas où dans src/)
+backend-app/src/__pycache__/
+backend-app/src/**/*.pyc
