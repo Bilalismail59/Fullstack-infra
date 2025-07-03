@@ -8,7 +8,7 @@ spec:
     - web
     - websecure
   routes:
-    - match: Host(`backend.example.com`)
+    - match: Host(`iyawatransport.com`)
       kind: Rule
       services:
         - name: backend-service

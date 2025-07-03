@@ -74,3 +74,6 @@ backend-app/htmlcov/
 # Bytecode Python (au cas où dans src/)
 backend-app/src/__pycache__/
 backend-app/src/**/*.pyc
+
+# Docker
+letsencrypt/

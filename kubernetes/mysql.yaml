@@ -9,8 +9,8 @@ on:
       - '.github/workflows/sonarqube-setup.yaml'
 
 env:
-  PROJECT_ID: primordial-port-462408-q7
-  CLUSTER_NAME: primordial-port-462408-q7-gke-cluster
+  PROJECT_ID: chrome-entropy-464618-v3
+  CLUSTER_NAME: chrome-entropy-464618-v3-gke-cluster
   CLUSTER_REGION: europe-west9
 
 jobs:

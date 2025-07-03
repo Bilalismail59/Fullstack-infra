@@ -96,7 +96,7 @@ spec:
     - port: 80
   selector:
     app: wordpress
-  type: ClusterIP
+  type: LoadBalancer
 ---
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
@@ -108,12 +108,12 @@ spec:
     - web
     - websecure
   routes:
-  - match: Host(`wordpress.example.com`)
+  - match: Host(`traefik.iyawatransport.com`)
     kind: Rule
     services:
     - name: wordpress
       port: 80
-  - match: Host(`wordpress-preprod.example.com`)
+  - match: Host(`traefik.iyawatransport.com.`)
     kind: Rule
     services:
     - name: wordpress

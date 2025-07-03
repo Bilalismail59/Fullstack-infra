@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROJECT="primordial-port-462408-q7"
+PROJECT="chrome-entropy-464618-v3"
 REGION="europe-west9"
 ZONE="europe-west9-b"
 

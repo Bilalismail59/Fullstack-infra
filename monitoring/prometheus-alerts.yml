@@ -1,4 +1,15 @@
 groups:
+- name: test.rules
+  rules:
+    - alert: ForcedTestAlert
+      expr: vector(1)
+      for: 10s
+      labels:
+        severity: critical
+        environment: preprod
+      annotations:
+        summary: " Test Alerte critique manuelle"
+        description: "Ceci est un test forcé pour vérifier l’intégration Prometheus → Alertmanager"
 - name: infrastructure.rules
   rules:
   - alert: PodCrashLooping

@@ -16,9 +16,9 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: europe-west9-docker.pkg.dev/primordial-port-462408-q7/docker-repo/frontend-app:latest
+        image: bilalis/frontend-app:latest
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         resources:
           requests:
             memory: "64Mi"
@@ -37,7 +37,7 @@ spec:
   ports:
     - protocol: TCP
       port: 80
-      targetPort: 80
+      targetPort: 8080
   type: LoadBalancer
 
 

@@ -58,16 +58,16 @@ spec:
         - name: SONAR_ES_BOOTSTRAP_CHECKS_DISABLE
           value: "true"
         - name: SONAR_WEB_JAVAADDITIONALOPTS
-          value: "-Xmx512m -Xms128m"  # Réduction de la mémoire JVM
+          value: "-Xmx512m -Xms128m"  
         - name: SONAR_CE_JAVAADDITIONALOPTS
-          value: "-Xmx256m -Xms64m"   # Réduction de la mémoire JVM
+          value: "-Xmx256m -Xms64m"   
         resources:
           requests:
-            cpu: "200m"      # Réduit pour s'adapter au cluster
-            memory: "512Mi"   # Réduit de 1Gi à 512Mi
+            cpu: "200m"     
+            memory: "512Mi"   
           limits:
-            cpu: "500m"      # Limite raisonnable
-            memory: "1Gi"     # Limite raisonnable
+            cpu: "500m"      
+            memory: "1Gi"    
         volumeMounts:
         - name: sonarqube-data
           mountPath: /opt/sonarqube/data

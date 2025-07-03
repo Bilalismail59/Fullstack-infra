@@ -1,0 +1,8 @@
+/* src/index.css */
+@import "tailwindcss/preflight";
+@import "tailwindcss/utilities";
+
+/* Vos styles personnalisés */
+body {
+  @apply bg-gray-50 text-gray-900;
+}

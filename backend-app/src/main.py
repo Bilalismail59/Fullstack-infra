@@ -1,7 +1,7 @@
 import os
 import sys
 from dotenv import load_dotenv
-from flask import Flask, send_from_directory, jsonify
+from flask import Flask, jsonify
 from flask_cors import CORS
 from src.models.user import db
 from src.routes.user import user_bp
@@ -14,10 +14,7 @@ load_dotenv()
 
 def create_app():
     """Factory de création de l'application Flask"""
-    app = Flask(
-        __name__,
-        static_folder=os.path.join(os.path.dirname(__file__), 'static')
-    )
+    app = Flask(__name__)
 
     # Sécurité : forcer la présence d'une clé secrète en variable d'env
     if not os.environ.get("SECRET_KEY"):
@@ -73,26 +70,7 @@ def create_app():
             ]
         })
 
-    @app.route('/', defaults={'path': ''})
-    @app.route('/<path:path>')
-    def serve(path):
-        """Servir les fichiers statiques (frontend SPA)"""
-        static_folder_path = app.static_folder
-        if not static_folder_path:
-            return "Static folder not configured", 404
-
-        requested_path = os.path.join(static_folder_path, path)
-        index_path = os.path.join(static_folder_path, 'index.html')
-
-        if path and os.path.exists(requested_path):
-            return send_from_directory(static_folder_path, path)
-        elif os.path.exists(index_path):
-            return send_from_directory(static_folder_path, 'index.html')
-        else:
-            return "index.html not found", 404
-
     return app
-
 
 # Point d'entrée pour le lancement local
 if __name__ == '__main__':  # pragma: no cover

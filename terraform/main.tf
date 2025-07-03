@@ -1,135 +1,137 @@
 provider "google" {
-  project = var.gcp_project_id
-  region  = var.gcp_region
+  project     = var.gcp_project_id
+  region      = var.gcp_region
   credentials = file(var.gcp_credentials_file)
+  scopes = [
+    "https://www.googleapis.com/auth/cloud-platform",
+    "https://www.googleapis.com/auth/compute"
+  ]
 }
 
+# Activation des APIs requises
+resource "google_project_service" "required_apis" {
+  for_each = toset([
+    "compute.googleapis.com",
+    "container.googleapis.com",
+    "dns.googleapis.com"
+  ])
+  service            = each.key
+  disable_on_destroy = false
+}
+
+# Réseau VPC
 resource "google_compute_network" "vpc_network" {
   name                    = "${var.gcp_project_id}-vpc"
   auto_create_subnetworks = false
+  depends_on              = [google_project_service.required_apis]
 }
 
-resource "google_compute_subnetwork" "frontend_subnet" {
-  name          = "${var.gcp_project_id}-frontend-subnet"
-  ip_cidr_range = "10.0.1.0/24"
+# Sous-réseaux Production
+resource "google_compute_subnetwork" "prod_subnets" {
+  for_each = {
+    frontend = "10.0.1.0/24"
+    backend  = "10.0.2.0/24"
+    database = "10.0.3.0/24"
+  }
+
+  name          = "${var.gcp_project_id}-${each.key}-subnet"
+  ip_cidr_range = each.value
   region        = var.gcp_region
   network       = google_compute_network.vpc_network.id
 }
 
-resource "google_compute_subnetwork" "backend_subnet" {
-  name          = "${var.gcp_project_id}-backend-subnet"
-  ip_cidr_range = "10.0.2.0/24"
-  region        = var.gcp_region
-  network       = google_compute_network.vpc_network.id
-}
+# Instances Compute
+resource "google_compute_instance" "prod_instances" {
+  for_each = {
+    frontend = {
+      subnet        = google_compute_subnetwork.prod_subnets["frontend"].id
+      access_config = [{}] # Avec IP publique
+    }
+    backend = {
+      subnet        = google_compute_subnetwork.prod_subnets["backend"].id
+      access_config = [] # Sans IP publique
+    }
+    database = {
+      subnet        = google_compute_subnetwork.prod_subnets["database"].id
+      access_config = [] # Sans IP publique
+    }
+  }
 
-resource "google_compute_subnetwork" "database_subnet" {
-  name          = "${var.gcp_project_id}-database-subnet"
-  ip_cidr_range = "10.0.3.0/24"
-  region        = var.gcp_region
-  network       = google_compute_network.vpc_network.id
-}
-
-resource "google_compute_instance" "frontend_instance" {
-  name         = "${var.gcp_project_id}-frontend-instance"
-  machine_type = "e2-medium"
+  name         = "${var.gcp_project_id}-prod-instance-${each.key}"
+  machine_type = "e2-small"
   zone         = "${var.gcp_region}-b"
+  
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-11"
+      size  = 10
     }
   }
+
   network_interface {
     network    = google_compute_network.vpc_network.id
-    subnetwork = google_compute_subnetwork.frontend_subnet.id
-    access_config {}
-  }
-  metadata_startup_script = ""
-}
-
-resource "google_compute_instance" "backend_instance" {
-  name         = "${var.gcp_project_id}-backend-instance"
-  machine_type = "e2-medium"
-  zone         = "${var.gcp_region}-b"
-  boot_disk {
-    initialize_params {
-      image = "debian-cloud/debian-11"
+    subnetwork = each.value.subnet
+    
+    dynamic "access_config" {
+      for_each = each.value.access_config
+      content {}
     }
   }
-  network_interface {
-    network    = google_compute_network.vpc_network.id
-    subnetwork = google_compute_subnetwork.backend_subnet.id
-  }
-  metadata_startup_script = ""
+
+  metadata_startup_script = <<-EOF
+    #!/bin/bash
+    apt-get update -y
+    apt-get install -y nginx
+    systemctl enable nginx
+    systemctl start nginx
+  EOF
+
+  tags = ["${each.key}"]
 }
 
-resource "google_compute_instance" "database_instance" {
-  name         = "${var.gcp_project_id}-database-instance"
-  machine_type = "e2-medium"
-  zone         = "${var.gcp_region}-b"
-  boot_disk {
-    initialize_params {
-      image = "debian-cloud/debian-11"
+# Règles de firewall
+resource "google_compute_firewall" "firewall_rules" {
+  for_each = {
+    ssh = {
+      ports    = ["22"]
+      sources  = [var.admin_ip]
+    }
+    http = {
+      ports    = ["80"]
+      sources  = ["0.0.0.0/0"]
+    }
+    https = {
+      ports    = ["443"]
+      sources  = ["0.0.0.0/0"]
+    }
+    internal = {
+      ports    = ["80", "443", "3306"]
+      sources  = ["10.0.0.0/8"]
     }
   }
-  network_interface {
-    network    = google_compute_network.vpc_network.id
-    subnetwork = google_compute_subnetwork.database_subnet.id
-  }
-  metadata_startup_script = ""
-}
 
-resource "google_compute_firewall" "allow_ssh" {
-  name    = "${var.gcp_project_id}-allow-ssh"
+  name    = "${var.gcp_project_id}-allow-${each.key}"
   network = google_compute_network.vpc_network.id
+  
   allow {
     protocol = "tcp"
-    ports    = ["22"]
+    ports    = each.value.ports
   }
-  source_ranges = ["0.0.0.0/0"]
+
+  source_ranges = each.value.sources
+  target_tags   = each.key == "ssh" ? ["frontend"] : null
 }
 
-resource "google_compute_firewall" "allow_http" {
-  name    = "${var.gcp_project_id}-allow-http"
-  network = google_compute_network.vpc_network.id
-  allow {
-    protocol = "tcp"
-    ports    = ["80"]
-  }
-  source_ranges = ["0.0.0.0/0"]
-}
-
-resource "google_compute_firewall" "allow_https" {
-  name    = "${var.gcp_project_id}-allow-https"
-  network = google_compute_network.vpc_network.id
-  allow {
-    protocol = "tcp"
-    ports    = ["443"]
-  }
-  source_ranges = ["0.0.0.0/0"]
-}
-
-resource "google_compute_firewall" "allow_internal" {
-  name    = "${var.gcp_project_id}-allow-internal"
-  network = google_compute_network.vpc_network.id
-  allow {
-    protocol = "tcp"
-    ports    = ["80", "443", "3306"]
-  }
-  source_ranges = ["10.0.0.0/8"]
-}
-
-output "frontend_external_ip" {
-  value = google_compute_instance.frontend_instance.network_interface[0].access_config[0].nat_ip
-}
-
+# Cluster GKE
 resource "google_container_cluster" "primary" {
-  name     = "${var.gcp_project_id}-gke-cluster"
-  location = var.gcp_region
-  initial_node_count = 1
+  name                = "${var.gcp_project_id}-gke-cluster"
+  location            = var.gcp_region
+  initial_node_count  = 1
+  deletion_protection = false # Désactivé pour faciliter les tests
 
   node_config {
-    machine_type = "e2-medium"
+    machine_type = "e2-small"
+    disk_size_gb = 20
     oauth_scopes = [
       "https://www.googleapis.com/auth/compute",
       "https://www.googleapis.com/auth/devstorage.read_only",
@@ -137,104 +139,13 @@ resource "google_container_cluster" "primary" {
       "https://www.googleapis.com/auth/monitoring"
     ]
   }
+
+  depends_on = [
+    google_project_service.required_apis
+  ]
 }
 
-resource "google_compute_subnetwork" "frontend_subnet_preprod" {
-  name          = "${var.gcp_project_id}-frontend-subnet-preprod"
-  ip_cidr_range = "10.0.4.0/24"
-  region        = var.gcp_region
-  network       = google_compute_network.vpc_network.id
-}
-
-resource "google_compute_subnetwork" "backend_subnet_preprod" {
-  name          = "${var.gcp_project_id}-backend-subnet-preprod"
-  ip_cidr_range = "10.0.5.0/24"
-  region        = var.gcp_region
-  network       = google_compute_network.vpc_network.id
-}
-
-resource "google_compute_subnetwork" "database_subnet_preprod" {
-  name          = "${var.gcp_project_id}-database-subnet-preprod"
-  ip_cidr_range = "10.0.6.0/24"
-  region        = var.gcp_region
-  network       = google_compute_network.vpc_network.id
-}
-
-resource "google_compute_instance" "frontend_instance_preprod" {
-  name         = "${var.gcp_project_id}-frontend-instance-preprod"
-  machine_type = "e2-medium"
-  zone         = "${var.gcp_region}-b"
-  boot_disk {
-    initialize_params {
-      image = "debian-cloud/debian-11"
-    }
-  }
-  network_interface {
-    network    = google_compute_network.vpc_network.id
-    subnetwork = google_compute_subnetwork.frontend_subnet_preprod.id
-  }
-  metadata_startup_script = ""
-}
-
-resource "google_compute_instance" "backend_instance_preprod" {
-  name         = "${var.gcp_project_id}-backend-instance-preprod"
-  machine_type = "e2-medium"
-  zone         = "${var.gcp_region}-b"
-  boot_disk {
-    initialize_params {
-      image = "debian-cloud/debian-11"
-    }
-  }
-  network_interface {
-    network    = google_compute_network.vpc_network.id
-    subnetwork = google_compute_subnetwork.backend_subnet_preprod.id
-  }
-  metadata_startup_script = ""
-}
-
-resource "google_compute_instance" "database_instance_preprod" {
-  name         = "${var.gcp_project_id}-database-instance-preprod"
-  machine_type = "e2-medium"
-  zone         = "${var.gcp_region}-b"
-  boot_disk {
-    initialize_params {
-      image = "debian-cloud/debian-11"
-    }
-  }
-  network_interface {
-    network    = google_compute_network.vpc_network.id
-    subnetwork = google_compute_subnetwork.database_subnet_preprod.id
-  }
-  metadata_startup_script = ""
-}
-
-output "frontend_internal_ip" {
-  value = google_compute_instance.frontend_instance.network_interface[0].network_ip
-}
-
-output "backend_internal_ip" {
-  value = google_compute_instance.backend_instance.network_interface[0].network_ip
-}
-
-output "database_internal_ip" {
-  value = google_compute_instance.database_instance.network_interface[0].network_ip
-}
-
-output "frontend_internal_ip_preprod" {
-  value = google_compute_instance.frontend_instance_preprod.network_interface[0].network_ip
-}
-
-output "backend_internal_ip_preprod" {
-  value = google_compute_instance.backend_instance_preprod.network_interface[0].network_ip
-}
-
-output "database_internal_ip_preprod" {
-  value = google_compute_instance.database_instance_preprod.network_interface[0].network_ip
-}
-
-
-
-# NAT Gateway pour permettre l'accès Internet aux instances sans IP publique
+# NAT Gateway
 resource "google_compute_router" "nat_router" {
   name    = "${var.gcp_project_id}-nat-router"
   region  = var.gcp_region
@@ -254,7 +165,7 @@ resource "google_compute_router_nat" "nat_gateway" {
   }
 }
 
-# Load Balancer pour l'accès externe aux environnements
+# Load Balancer
 resource "google_compute_global_address" "lb_ip" {
   name = "${var.gcp_project_id}-lb-ip"
 }
@@ -267,13 +178,10 @@ resource "google_compute_health_check" "http_health_check" {
   }
 }
 
-resource "google_compute_instance_group" "frontend_group_prod" {
-  name = "${var.gcp_project_id}-frontend-group-prod"
-  zone = "${var.gcp_region}-b"
-
-  instances = [
-    google_compute_instance.frontend_instance.id
-  ]
+resource "google_compute_instance_group" "frontend_group" {
+  name    = "${var.gcp_project_id}-frontend-group"
+  zone    = "${var.gcp_region}-b"
+  instances = [google_compute_instance.prod_instances["frontend"].id]
 
   named_port {
     name = "http"
@@ -281,41 +189,14 @@ resource "google_compute_instance_group" "frontend_group_prod" {
   }
 }
 
-resource "google_compute_instance_group" "frontend_group_preprod" {
-  name = "${var.gcp_project_id}-frontend-group-preprod"
-  zone = "${var.gcp_region}-b"
-
-  instances = [
-    google_compute_instance.frontend_instance_preprod.id
-  ]
-
-  named_port {
-    name = "http"
-    port = "80"
-  }
-}
-
-resource "google_compute_backend_service" "frontend_backend_prod" {
-  name        = "${var.gcp_project_id}-frontend-backend-prod"
+resource "google_compute_backend_service" "frontend_backend" {
+  name        = "${var.gcp_project_id}-frontend-backend"
   port_name   = "http"
   protocol    = "HTTP"
   timeout_sec = 10
 
   backend {
-    group = google_compute_instance_group.frontend_group_prod.id
-  }
-
-  health_checks = [google_compute_health_check.http_health_check.id]
-}
-
-resource "google_compute_backend_service" "frontend_backend_preprod" {
-  name        = "${var.gcp_project_id}-frontend-backend-preprod"
-  port_name   = "http"
-  protocol    = "HTTP"
-  timeout_sec = 10
-
-  backend {
-    group = google_compute_instance_group.frontend_group_preprod.id
+    group = google_compute_instance_group.frontend_group.id
   }
 
   health_checks = [google_compute_health_check.http_health_check.id]
@@ -323,21 +204,11 @@ resource "google_compute_backend_service" "frontend_backend_preprod" {
 
 resource "google_compute_url_map" "url_map" {
   name            = "${var.gcp_project_id}-url-map"
-  default_service = google_compute_backend_service.frontend_backend_prod.id
-
-  host_rule {
-    hosts        = ["preprod.${var.domain_name}"]
-    path_matcher = "preprod"
-  }
-
-  path_matcher {
-    name            = "preprod"
-    default_service = google_compute_backend_service.frontend_backend_preprod.id
-  }
+  default_service = google_compute_backend_service.frontend_backend.id
 }
 
 resource "google_compute_target_http_proxy" "http_proxy" {
-  name   = "${var.gcp_project_id}-http-proxy"
+  name    = "${var.gcp_project_id}-http-proxy"
   url_map = google_compute_url_map.url_map.id
 }
 
@@ -348,11 +219,21 @@ resource "google_compute_global_forwarding_rule" "http_forwarding_rule" {
   ip_address = google_compute_global_address.lb_ip.address
 }
 
+# Outputs
 output "load_balancer_ip" {
-  value = google_compute_global_address.lb_ip.address
+  value       = google_compute_global_address.lb_ip.address
+  description = "IP publique du Load Balancer"
 }
 
-output "frontend_external_ip_preprod" {
-  value = "Accessible via Load Balancer IP: ${google_compute_global_address.lb_ip.address}"
+output "frontend_external_ip" {
+  value       = google_compute_instance.prod_instances["frontend"].network_interface[0].access_config[0].nat_ip
+  description = "IP publique de l'instance frontend"
 }
 
+output "internal_ips" {
+  value = {
+    for k, instance in google_compute_instance.prod_instances :
+    k => instance.network_interface[0].network_ip
+  }
+  description = "IPs internes de toutes les instances"
+}

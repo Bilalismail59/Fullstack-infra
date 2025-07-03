@@ -71,19 +71,6 @@ receivers:
           <em>Sévérité :</em> {{ .Labels.severity }}<br>
           {{ end }}
 
-  - name: 'critical-alerts'
-    slack_configs:        
-      - api_url: 'https://hooks.slack.com/services/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'
-        channel: '#alerts-devops'
-        title: ' Alerte Critique - {{ .GroupLabels.alertname }}'
-        text: |
-          {{ range .Alerts }}
-          *{{ .Annotations.summary }}*
-          {{ .Annotations.description }}
-          Environnement: {{ .Labels.environment }}
-          {{ end }}
-        color: 'danger'
-
   - name: 'preprod-alerts'
     email_configs:
       - to: 'dev-team@example.com'
@@ -102,7 +89,6 @@ inhibit_rules:
     target_match:
       severity: 'warning'
     equal: ['alertname', 'environment']
-
   - source_match:
       alertname: 'PodNotReady'
     target_match:

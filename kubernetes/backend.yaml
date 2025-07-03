@@ -13,11 +13,10 @@ spec:
   template:
     metadata:
       labels:
-        app: backend
-    spec:
+        app: backend    
       containers:
       - name: backend
-        image: europe-west9-docker.pkg.dev/primordial-port-462408-q7/docker-repo/backend-app:latest
+        image: europe-west9-docker.pkg.dev/chrome-entropy-464618-v3/docker-repo/backend-app:latest
         ports:
         - containerPort: 5000
 ---
