@@ -26,9 +26,9 @@ print_result() {
     local test_name="$1"
     local result="$2"
     local details="$3"
-    
+
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
-    
+
     if [ "$result" = "PASS" ]; then
         echo -e "${GREEN}✓ PASS${NC} - $test_name"
         PASSED_TESTS=$((PASSED_TESTS + 1))
@@ -47,21 +47,20 @@ test_service_connectivity() {
     local namespace="$2"
     local port="$3"
     local path="${4:-/}"
-    
+
     echo -e "${BLUE}Test de connectivité:${NC} $service_name"
-    
+
     # Port-forward vers le service
     kubectl port-forward -n "$namespace" "svc/$service_name" "$port:$port" &
     PF_PID=$!
     sleep 5
-    
+
     # Test de connectivité
     if curl -s -f "http://localhost:$port$path" > /dev/null; then
         print_result "$service_name connectivity" "PASS"
     else
         print_result "$service_name connectivity" "FAIL" "Service non accessible sur le port $port"
     fi
-    
     # Arrêter le port-forward
     kill $PF_PID 2>/dev/null || true
     sleep 2
@@ -71,17 +70,17 @@ test_service_connectivity() {
 check_pods_status() {
     local namespace="$1"
     local app_label="$2"
-    
+
     echo -e "${BLUE}Vérification des pods:${NC} $app_label dans $namespace"
-    
+
     # Obtenir le statut des pods
     pod_status=$(kubectl get pods -n "$namespace" -l "app=$app_label" -o jsonpath='{.items[*].status.phase}' 2>/dev/null || echo "")
-    
+
     if [ -z "$pod_status" ]; then
         print_result "$app_label pods existence" "FAIL" "Aucun pod trouvé avec le label app=$app_label"
         return
     fi
-    
+
     # Vérifier que tous les pods sont en cours d'exécution
     for status in $pod_status; do
         if [ "$status" != "Running" ]; then
@@ -89,22 +88,22 @@ check_pods_status() {
             return
         fi
     done
-    
+
     print_result "$app_label pods status" "PASS"
 }
 
 # Fonction pour vérifier les volumes persistants
 check_persistent_volumes() {
     echo -e "${BLUE}Vérification des volumes persistants${NC}"
-    
+
     # Lister tous les PVC
     pvc_status=$(kubectl get pvc --all-namespaces -o jsonpath='{.items[*].status.phase}' 2>/dev/null || echo "")
-    
+
     if [ -z "$pvc_status" ]; then
         print_result "Persistent Volumes" "FAIL" "Aucun PVC trouvé"
         return
     fi
-    
+
     # Vérifier que tous les PVC sont liés
     for status in $pvc_status; do
         if [ "$status" != "Bound" ]; then
@@ -112,7 +111,7 @@ check_persistent_volumes() {
             return
         fi
     done
-    
+
     print_result "Persistent Volumes" "PASS"
 }
 
@@ -120,30 +119,30 @@ check_persistent_volumes() {
 test_database_connectivity() {
     local namespace="$1"
     local service_name="$2"
-    
+
     echo -e "${BLUE}Test de connectivité base de données:${NC} $service_name"
-    
-    # Port-forward vers MySQL
-    kubectl port-forward -n "$namespace" "svc/$service_name" 3306:3306 &
+
+    # Port-forward vers PostgreSQL
+    kubectl port-forward -n "$namespace" "svc/$service_name" 5432:5432 &
     PF_PID=$!
     sleep 5
-    
+
     # Test de connectivité MySQL (nécessite mysql-client)
-    if command -v mysql &> /dev/null; then
-        if mysql -h localhost -P 3306 -u root -prootpassword123 -e "SELECT 1;" &> /dev/null; then
+    if command -v psql &> /dev/null; then
+        if PGPASSWORD="postgres" psql -h localhost -p 5432 -U postgres -c "SELECT 1;" &> /dev/null; then
             print_result "$service_name database connectivity" "PASS"
         else
-            print_result "$service_name database connectivity" "FAIL" "Impossible de se connecter à MySQL"
+            print_result "$service_name database connectivity" "FAIL" "Impossible de se connecter à PostgreSQL"
         fi
     else
         # Test de port ouvert
-        if nc -z localhost 3306 2>/dev/null; then
+        if nc -z localhost 5432 2>/dev/null; then
             print_result "$service_name database port" "PASS"
         else
-            print_result "$service_name database port" "FAIL" "Port 3306 non accessible"
+            print_result "$service_name database port" "FAIL" "Port 5432 non accessible"
         fi
     fi
-    
+
     kill $PF_PID 2>/dev/null || true
     sleep 2
 }
@@ -151,10 +150,10 @@ test_database_connectivity() {
 # Fonction pour vérifier les IngressRoutes Traefik
 check_ingress_routes() {
     echo -e "${BLUE}Vérification des IngressRoutes Traefik${NC}"
-    
+
     # Lister toutes les IngressRoutes
     ingress_count=$(kubectl get ingressroute --all-namespaces --no-headers 2>/dev/null | wc -l)
-    
+
     if [ "$ingress_count" -gt 0 ]; then
         print_result "Traefik IngressRoutes" "PASS" "$ingress_count IngressRoutes configurées"
     else
@@ -165,16 +164,16 @@ check_ingress_routes() {
 # Fonction pour vérifier la supervision
 check_monitoring_stack() {
     echo -e "${BLUE}Vérification de la stack de monitoring${NC}"
-    
+
     # Vérifier Prometheus
     check_pods_status "monitoring" "prometheus"
-    
+
     # Vérifier Grafana
     check_pods_status "monitoring" "grafana"
-    
+
     # Test de connectivité Grafana
     test_service_connectivity "grafana" "monitoring" "3000"
-    
+
     # Test de connectivité Prometheus
     test_service_connectivity "prometheus-server" "monitoring" "9090"
 }
@@ -182,19 +181,19 @@ check_monitoring_stack() {
 # Fonction pour vérifier les alertes Prometheus
 check_prometheus_alerts() {
     echo -e "${BLUE}Vérification des alertes Prometheus${NC}"
-    
+
     # Port-forward vers Prometheus
     kubectl port-forward -n monitoring svc/prometheus-server 9090:80 &
     PF_PID=$!
     sleep 5
-    
+
     # Vérifier les règles d'alertes
     if curl -s "http://localhost:9090/api/v1/rules" | jq -r '.data.groups[].rules[].name' | grep -q "PodCrashLooping"; then
         print_result "Prometheus alert rules" "PASS"
     else
         print_result "Prometheus alert rules" "FAIL" "Règles d'alertes non trouvées"
     fi
-    
+
     kill $PF_PID 2>/dev/null || true
     sleep 2
 }
@@ -202,27 +201,27 @@ check_prometheus_alerts() {
 # Fonction pour vérifier les ressources du cluster
 check_cluster_resources() {
     echo -e "${BLUE}Vérification des ressources du cluster${NC}"
-    
+
     # Vérifier les nœuds
     node_status=$(kubectl get nodes -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}')
-    
+
     ready_nodes=0
     for status in $node_status; do
         if [ "$status" = "True" ]; then
             ready_nodes=$((ready_nodes + 1))
         fi
     done
-    
+
     if [ "$ready_nodes" -gt 0 ]; then
         print_result "Cluster nodes" "PASS" "$ready_nodes nœuds prêts"
     else
         print_result "Cluster nodes" "FAIL" "Aucun nœud prêt"
     fi
-    
+
     # Vérifier l'utilisation des ressources
     cpu_usage=$(kubectl top nodes --no-headers 2>/dev/null | awk '{sum+=$3} END {print sum}' || echo "0")
     memory_usage=$(kubectl top nodes --no-headers 2>/dev/null | awk '{sum+=$5} END {print sum}' || echo "0")
-    
+
     print_result "Resource monitoring" "PASS" "CPU: ${cpu_usage}%, Memory: ${memory_usage}%"
 }
 
@@ -242,9 +241,9 @@ check_pods_status "default" "backend"
 
 # 3. Vérification des bases de données
 echo -e "\n${BLUE}=== BASES DE DONNÉES ===${NC}"
-check_pods_status "default" "mysql"
-check_pods_status "preprod" "mysql-preprod"
-test_database_connectivity "default" "mysql"
+check_pods_status "default" "postgresql"
+check_pods_status "preprod" "postgresql-preprod"
+test_database_connectivity "default" "postgresql"
 
 # 4. Vérification de WordPress
 echo -e "\n${BLUE}=== WORDPRESS ===${NC}"

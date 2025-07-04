@@ -196,5 +196,5 @@ Si vous avez des questions :
 2. **Consultez** la documentation SonarCloud
 3. **Testez** étape par étape
 
-**Cette solution fonctionne de manière fiable !** 🎉
+**Cette solution fonctionne de manière fiable !** 
 

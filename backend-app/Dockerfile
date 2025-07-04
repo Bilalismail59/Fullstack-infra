@@ -3,10 +3,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Installer les dépendances système
+# Installer les dépendances système utiles pour psycopg2 ou SQLAlchemy
 RUN apt-get update && apt-get install -y \
     gcc \
-    default-libmysqlclient-dev \
+    libpq-dev \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
@@ -28,7 +28,7 @@ EXPOSE 5000
 # Variables d'environnement nécessaires à Flask
 ENV FLASK_ENV=development
 ENV FLASK_DEBUG=1
-ENV FLASK_APP=src/wsgi.py
+ENV FLASK_APP=src/main.py
 ENV PYTHONPATH=/app
 
 # Lancer l'application avec hot reload

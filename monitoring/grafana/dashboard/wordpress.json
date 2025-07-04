@@ -1,8 +1,8 @@
 {
   "dashboard": {
     "id": null,
-    "title": "WordPress & MySQL - Monitoring Applicatif",
-    "tags": ["wordpress", "mysql", "application", "database"],
+    "title": "WordPress & Postgresql - Monitoring Applicatif",
+    "tags": ["wordpress", "postgresql", "application", "database"],
     "timezone": "browser",
     "panels": [
       {
@@ -62,11 +62,11 @@
       },
       {
         "id": 2,
-        "title": "Statut des bases de données MySQL",
+        "title": "Statut des bases de données PostgreSQL",
         "type": "stat",
         "targets": [
           {
-            "expr": "up{job=\"kubernetes-pods\", pod=~\"mysql.*\"}",
+            "expr": "up{job=\"kubernetes-pods\", pod=~\"postgresql.*\"}",
             "legendFormat": "{{pod}} ({{namespace}})"
           }
         ],
@@ -253,7 +253,7 @@
         "type": "timeseries",
         "targets": [
           {
-            "expr": "(kubelet_volume_stats_used_bytes{persistentvolumeclaim=~\".*wordpress.*|.*mysql.*\"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~\".*wordpress.*|.*mysql.*\"}) * 100",
+            "expr": "(kubelet_volume_stats_used_bytes{persistentvolumeclaim=~\".*wordpress.*|.*postgresql.*\"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~\".*wordpress.*|.*mysql.*\"}) * 100",
             "legendFormat": "{{persistentvolumeclaim}} ({{namespace}})"
           }
         ],
@@ -323,7 +323,7 @@
         "type": "table",
         "targets": [
           {
-            "expr": "kube_pod_container_status_restarts_total{pod=~\"wordpress.*|mysql.*\"}",
+            "expr": "kube_pod_container_status_restarts_total{pod=~\"wordpress.*|postgresql.*\"}",
             "legendFormat": "{{pod}} ({{namespace}})"
           }
         ],
@@ -442,7 +442,7 @@
       "to": "now"
     },
     "timepicker": {},
-    "uid": "wordpress-mysql-monitoring",
+    "uid": "wordpress-postgresql-monitoring",
     "version": 1,
     "weekStart": ""
   }

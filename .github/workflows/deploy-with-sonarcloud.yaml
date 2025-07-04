@@ -129,24 +129,29 @@ jobs:
           kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
           echo " Namespaces préparés"
 
-      - name: Deploy WordPress with MariaDB
+      - name: Deploy WordPress with PostgreSQL
         run: |
-          # Annuler toute opération Helm en cours
           helm rollback wordpress-prod -n production 0 2>/dev/null || true
 
           helm upgrade --install wordpress-prod bitnami/wordpress \
-            --namespace production \
-            --set mariadb.enabled=true \
-            --set mariadb.auth.rootPassword=${{ secrets.MARIADB_ROOT_PASSWORD }} \
-            --set mariadb.auth.database=bitnami_wordpress \
-            --set mariadb.auth.username=bn_wordpress \
-            --set mariadb.auth.password=${{ secrets.MARIADB_PASSWORD }} \
-            --set persistence.size=10Gi \
-            --set service.type=LoadBalancer \
-            --set resources.requests.memory=512Mi \
-            --set resources.requests.cpu=250m \
-            --wait --timeout=10m
-          echo " WordPress déployé avec MariaDB"
+           --namespace production \
+           --set mariadb.enabled=false \
+           --set externalDatabase.type=postgresql \
+           --set externalDatabase.host=${{ secrets.POSTGRES_HOST }} \
+           --set externalDatabase.port=5432 \
+           --set externalDatabase.user=${{ secrets.POSTGRES_USER }} \
+           --set externalDatabase.password=${{ secrets.POSTGRES_PASSWORD }} \
+           --set externalDatabase.database=bitnami_wordpress \
+           --set wordpressUsername=admin \
+           --set wordpressPassword=${{ secrets.WORDPRESS_PASSWORD }} \
+           --set persistence.size=10Gi \
+           --set service.type=LoadBalancer \
+           --set resources.requests.memory=512Mi \
+           --set resources.requests.cpu=250m \
+           --wait --timeout=10m
+
+          echo " WordPress déployé avec PostgreSQL"
+
 
       - name: Clean existing monitoring installations
         run: |
