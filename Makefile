@@ -38,7 +38,7 @@ dev: ## Démarrer l'environnement de développement
 	@echo "Environnement de développement démarré :"
 	@echo "- Frontend Dev: http://localhost:3000"
 	@echo "- Backend Dev: http://localhost:5000"
-	@echo "- MySQL Dev: localhost:3307"
+	@echo "- PostgreSQL Dev : localhost:5432"
 	@echo "- MailHog: http://localhost:8025"
 
 monitoring: ## Démarrer la stack de monitoring

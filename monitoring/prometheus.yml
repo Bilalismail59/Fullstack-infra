@@ -10,7 +10,7 @@ rule_files:
 alerting:
   alertmanagers:
     - static_configs:
-       - targets: ['alertmanager:9093']   
+        - targets: ['alertmanager:9093']
 
 scrape_configs:
   # Prometheus lui-même
@@ -23,31 +23,32 @@ scrape_configs:
     static_configs:
       - targets: ['node-exporter:9100']
 
-  # cAdvisor (métriques conteneurs)
+  # cAdvisor (métriques conteneurs Docker)
   - job_name: 'cadvisor'
     static_configs:
       - targets: ['cadvisor:8080']
 
-  # Applications
+  # Frontend React
   - job_name: 'frontend'
     static_configs:
       - targets: ['frontend:80']
     metrics_path: '/metrics'
     scrape_interval: 30s
 
+  # Backend Flask
   - job_name: 'backend'
     static_configs:
       - targets: ['backend:5000']
     metrics_path: '/metrics'
     scrape_interval: 30s
 
-  # MySQL Exporter (si configuré)
-  - job_name: 'mysql'
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
     static_configs:
-      - targets: ['mysql-exporter:9104']
+      - targets: ['postgres-exporter:9187']
     scrape_interval: 30s
 
-  # Redis Exporter (si configuré)
+  # Redis Exporter
   - job_name: 'redis'
     static_configs:
       - targets: ['redis-exporter:9121']

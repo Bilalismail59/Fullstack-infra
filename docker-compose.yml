@@ -1,119 +1,495 @@
+version: '3.8'
 services:
   # Frontend React Application
   frontend:
     build:
       context: ./frontend-app
       dockerfile: Dockerfile
+    env_file:
+      - .env  
     environment:
       - NODE_ENV=production
-      - REACT_APP_API_URL=http://backend:5000
+      - REACT_APP_API_URL=https://iyawatransport.com/api
+      - REACT_APP_VERSION=${APP_VERSION:-1.0.0}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - fullstack-network
+      - monitoring-network
     restart: unless-stopped
-    labels:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    labels:   
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`fullstack-.duckdns.org`) && PathPrefix(`/app`)"
-      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.rule=Host(`iyawatransport.com`) && PathPrefix(`/app`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
       - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+      - "traefik.http.routers.frontend.middlewares=security-headers"
 
   # Backend Flask API
   backend:
     build:
       context: ./backend-app
       dockerfile: Dockerfile
-    ports:
-      - "5000:5000"
+    env_file:
+      - .env  
     environment:
-    - FLASK_ENV=production
-    - DATABASE_URL=mysql://wordpress:wordpress@mysql:3306/wordpress
-    - REDIS_URL=redis://redis:6379/0
-    - SECRET_KEY=asdf#FGSgvasgf$5$WGT
+      - FLASK_ENV=production
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - FLASK_DEBUG=false
     depends_on:
-      - mysql
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - fullstack-network
+      - monitoring-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`fullstack-.duckdns.org`) && PathPrefix(`/api`)"
-      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.rule=Host(`iyawatransport.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.tls.certresolver=myresolver"
       - "traefik.http.routers.backend.priority=20"
       - "traefik.http.services.backend.loadbalancer.server.port=5000"
+      - "traefik.http.routers.backend.middlewares=security-headers,rate-limit"
 
-  # MySQL Database
-  mysql:
-    image: mysql:8.0
-    ports:
-      - "3306:3306"
+  # PostgreSQL Database (cohérent avec la présentation)
+  postgres:
+    image: postgres:15-alpine
+    env_file:
+      - .env
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: wordpress
-      MYSQL_USER: wordpress
-      MYSQL_PASSWORD: wordpress
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./mysql/init:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+      - ./postgres/backup:/backup
     networks:
       - fullstack-network
     restart: unless-stopped
-    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${DB_USER} -d $${DB_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=4MB
+      -c maintenance_work_mem=64MB
 
   # WordPress CMS
   wordpress:
-    image: wordpress:latest
+    image: wordpress:6.4-php8.2-apache
+    env_file:
+      - .env
     environment:
-      WORDPRESS_DB_HOST: mysql:3306
-      WORDPRESS_DB_USER: wordpress
-      WORDPRESS_DB_PASSWORD: wordpress
-      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_HOST: postgres:5432
+      WORDPRESS_DB_USER: ${DB_USER}
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${DB_NAME}
+      WORDPRESS_TABLE_PREFIX: wp_
+      WORDPRESS_DEBUG: false
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_REDIS_HOST', 'redis');
+        define('WP_REDIS_PORT', 6379);
+        define('WP_CACHE', true);
     volumes:
       - wordpress_data:/var/www/html
+      - ./wordpress/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
     depends_on:
-      - mysql
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - fullstack-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/wp-admin/install.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.wordpress.rule=Host(`fullstack-.duckdns.org`)"
-      - "traefik.http.routers.wordpress.entrypoints=web"
+      - "traefik.http.routers.wordpress.rule=Host(`iyawatransport.com`)"
+      - "traefik.http.routers.wordpress.entrypoints=websecure"
+      - "traefik.http.routers.wordpress.tls=true"
+      - "traefik.http.routers.wordpress.tls.certresolver=myresolver"
       - "traefik.http.services.wordpress.loadbalancer.server.port=80"
+      - "traefik.http.routers.wordpress.middlewares=security-headers"
 
   # Redis Cache
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    env_file:
+      - .env
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
     networks:
       - fullstack-network
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD}
 
   # Traefik Reverse Proxy
   traefik:
-    image: traefik:v3.0
+    image: traefik:v3.0.4
+    env_file:
+      - .env
     ports:
       - "80:80"
-      - "8081:8080"  # Dashboard
+      - "443:443"
     command:
-      - "--api.insecure=true"
+      # API/Dashboard
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      
+      # Providers
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=fullstack-network"
+      
+      # EntryPoints
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      
+      # Certificats ACME
+      - "--certificatesresolvers.myresolver.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      
+      # Sécurité
+      - "--global.sendAnonymousUsage=false"
       - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--metrics.prometheus=true"
+      
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml
     networks:
       - fullstack-network
+      - monitoring-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.iyawatransport.com`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.tls.certresolver=myresolver"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      
+      # Middlewares de sécurité
+      - "traefik.http.middlewares.security-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.security-headers.headers.sslRedirect=true"
+      - "traefik.http.middlewares.security-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.security-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.security-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.security-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.security-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.security-headers.headers.stsSeconds=31536000"
+      
+      # Rate limiting
+      - "traefik.http.middlewares.rate-limit.ratelimit.average=100"
+      - "traefik.http.middlewares.rate-limit.ratelimit.burst=50"
+      
+      # Auth basique
+      - "traefik.http.middlewares.auth.basicauth.usersfile=/letsencrypt/users"
+
+  # Prometheus - Collecte de métriques
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    environment:
+      - PROMETHEUS_RETENTION_TIME=30d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus-alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--storage.tsdb.wal-compression'
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.iyawatransport.com`)"
+      - "traefik.http.routers.prometheus.entrypoints=websecure"
+      - "traefik.http.routers.prometheus.tls=true"
+      - "traefik.http.routers.prometheus.tls.certresolver=myresolver"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+      - "traefik.http.routers.prometheus.middlewares=auth,security-headers"
+
+  # Grafana - Tableaux de bord
+  grafana:
+    image: grafana/grafana:10.1.0
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_STRICT_TRANSPORT_SECURITY=true
+      - GF_SNAPSHOTS_EXTERNAL_ENABLED=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.iyawatransport.com`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.tls.certresolver=myresolver"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+      - "traefik.http.routers.grafana.middlewares=security-headers"
+
+  # Alertmanager - Gestion des alertes
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    volumes:
+      - ./monitoring/alertmanager-config.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=https://alertmanager.iyawatransport.com'
+      - '--cluster.advertise-address=0.0.0.0:9093'
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.alertmanager.rule=Host(`alertmanager.iyawatransport.com`)"
+      - "traefik.http.routers.alertmanager.entrypoints=websecure"
+      - "traefik.http.routers.alertmanager.tls=true"
+      - "traefik.http.routers.alertmanager.tls.certresolver=myresolver"
+      - "traefik.http.services.alertmanager.loadbalancer.server.port=9093"
+      - "traefik.http.routers.alertmanager.middlewares=auth,security-headers"
+
+  # Node Exporter - Métriques système
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.systemd'
+      - '--collector.processes'
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # cAdvisor - Métriques des conteneurs
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # Backup automatique PostgreSQL
+  postgres-backup:
+    image: postgres:15-alpine
+    environment:
+      - PGPASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./postgres/backup:/backup
+      - ./scripts/backup.sh:/backup.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fullstack-network
+    restart: "no"
+    command: /bin/sh -c "chmod +x /backup.sh && crond -f"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
 
 volumes:
-  mysql_data:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  postgres_data:
     driver: local
   wordpress_data:
     driver: local
@@ -121,6 +497,11 @@ volumes:
     driver: local
 
 networks:
+  monitoring-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
   fullstack-network:
     driver: bridge
     ipam:

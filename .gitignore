@@ -77,3 +77,4 @@ backend-app/src/**/*.pyc
 
 # Docker
 letsencrypt/
+.env

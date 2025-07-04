@@ -3,6 +3,8 @@ import sys
 from dotenv import load_dotenv
 from flask import Flask, jsonify
 from flask_cors import CORS
+from prometheus_flask_exporter import PrometheusMetrics
+
 from src.models.user import db
 from src.routes.user import user_bp
 
@@ -21,17 +23,20 @@ def create_app():
         raise RuntimeError("SECRET_KEY must be set in environment variables.")
     app.config['SECRET_KEY'] = os.environ["SECRET_KEY"]
 
-    # Configuration de la base de données SQLite
-    app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
+    # Configuration PostgreSQL (au lieu de SQLite)
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL")
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # Activer CORS pour toutes les routes (API REST uniquement)
+    # Initialisation Prometheus
+    PrometheusMetrics(app)
+
+    # Activer CORS
     CORS(app)
 
     # Initialisation de la base de données
     db.init_app(app)
 
-    # Enregistrement des routes (Blueprint)
+    # Enregistrement des routes
     app.register_blueprint(user_bp, url_prefix='/api')
 
     # === ROUTES DE L'APPLICATION ===
@@ -70,11 +75,16 @@ def create_app():
             ]
         })
 
+    @app.route('/health')
+    def health():
+        """Healthcheck pour Docker"""
+        return jsonify({"status": "healthy"}), 200
+
     return app
 
 # Point d'entrée pour le lancement local
 if __name__ == '__main__':  # pragma: no cover
     app = create_app()
     with app.app_context():
-        db.create_all()  # À automatiser en production
+        db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)
