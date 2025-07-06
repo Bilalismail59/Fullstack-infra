@@ -139,7 +139,6 @@ L’analyse statique de code est réalisée avec **SonarCloud**, déclenchée au
 -  Génération auto de documentation technique
 
 ---
-![alt text](image.png)
 
 ## 🙏 Remerciements
 
