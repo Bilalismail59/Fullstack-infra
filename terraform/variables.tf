@@ -22,6 +22,6 @@ variable "domain_name" {
 }
 
 variable "admin_ip" {
-  description = "Adresse IP autorisée (ex: pour SSH ou HTTP)"
+  description = "Adresse IP autorisée ( pour SSH ou HTTP)"
   type        = string
 }
