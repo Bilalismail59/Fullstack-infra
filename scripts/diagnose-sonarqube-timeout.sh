@@ -70,7 +70,7 @@ fi
 
 # 4. Diagnostic PostgreSQL
 echo ""
-echo "🗄️ 4. DIAGNOSTIC POSTGRESQL"
+echo " 4. DIAGNOSTIC POSTGRESQL"
 echo "---------------------------"
 
 POSTGRES_PODS=$(kubectl get pods -n sonarqube -l app=postgres -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
