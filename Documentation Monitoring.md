@@ -64,7 +64,7 @@ scrape_configs:
     metrics_path: '/metrics'
 
   # Métriques MySQL
-  - job_name: 'mysql'
+  - job_name: 'postresql'
     static_configs:
       - targets: ['postgres-exporter:9187']
     scrape_interval: 30s

@@ -1,5 +1,18 @@
 #  Projet de Déploiement Full Stack sur Google Cloud
 
+###  Badges SonarCloud
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
+
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
+
+[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra) 
+
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra) 
+
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
+
+
 Ce projet a pour objectif de déployer une application full stack avec une architecture trois tiers sur **Google Cloud Platform (GCP)**. L’objectif est de mettre en place une **infrastructure automatisée, sécurisée et supervisée**, avec deux environnements : **pré-production** et **production**.
 
 ---
@@ -24,7 +37,7 @@ L'application est composée de trois couches distinctes :
 | Conteneurisation       | Docker + Kubernetes (K8s)                     |
 | Load Balancer / Proxy  | Traefik                                       |
 | CI/CD                  | GitHub Actions                                |
-| Supervision            | Prometheus, Grafana, Netdata                  |
+| Supervision            | Prometheus, Grafana,                          |
 | Qualité du code        | SonarQube (via SonarCloud)                    |
 
 ---
@@ -50,8 +63,9 @@ L'application est composée de trois couches distinctes :
 
 ###  3. Supervision et Observabilité
 - Dashboards Prometheus + Grafana
+![alt text](image-1.png)
 - Alerting basique avec Alertmanager
-- Netdata pour la supervision système
+![alt text](<Grafana_dashb.png>)
 
 ---
 
@@ -81,15 +95,7 @@ L’analyse statique de code est réalisée avec **SonarCloud**, déclenchée au
 - **Hotspots de sécurité** : 13 →  **100% Revu**  
 - **Qualité globale** :  Passed  
 - **Couverture des tests** :  87.8 %
-
-###  Badges SonarCloud
-
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
-[![Maintainability](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)  
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=Bilalismail59_Fullstack-infra&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=Bilalismail59_Fullstack-infra)
-
+![alt text](SonarQube-Inteface.png)
 
 ---
 
@@ -103,18 +109,27 @@ L’analyse statique de code est réalisée avec **SonarCloud**, déclenchée au
 
 ---
 
-##  Fichiers Clés
+## Fichiers Clés
 
-| Fichier                            | Description                                      |
-|-----------------------------------|--------------------------------------------------|
-| `primordial-port-462408-*.json`  | Clé d’authentification GCP (service account)     |
-| `todo.md`                         | Liste des tâches restantes                       |
-| `.github/workflows/deploy.yml`   | Déploiement GitHub Actions                       |
-| `terraform/`                      | Code IaC pour l’infra (VPC, instances, etc.)     |
-| `ansible/`                        | Playbooks de configuration                       |
-| `preprod/` et `prod/`            | Déploiement des services en environnements isolés|
+| Fichier                          | Description                                                |
+|----------------------------------|------------------------------------------------------------|
+| `.env.example`                   | Exemple des variables d’environnement à adapter            |
+| `secrets (non inclus)`           | Clés/API/token exclus pour des raisons de sécurité         |
+| `.github/workflows/deploy.yml`   | Pipeline GitHub Actions pour le déploiement automatisé     |
+| `terraform/`                     | Infrastructure as Code (réseau, VM, GCP...)                |
+| `ansible/`                       | Playbooks de configuration serveurs et services            |
+| `preprod/` et `prod/`            | Fichiers de déploiement Kubernetes selon l’environnement   |
 
 ---
+
+## Livrables
+
+- Code source complet (backend, frontend, infra)
+- Pipelines CI/CD GitHub Actions
+- Documentation technique (`Documentation Monitoring.md`, `README.md`)
+- Analyse qualité SonarCloud avec badges
+- Déploiement automatisé Kubernetes sur GCP
+- Supervision intégrée (Prometheus, Grafana, Alertmanager)
 
 ##  Prochaines Améliorations
 
@@ -126,11 +141,18 @@ L’analyse statique de code est réalisée avec **SonarCloud**, déclenchée au
 ---
 ![alt text](image.png)
 
+## 🙏 Remerciements
+
+- 🎓**Transition Pro** – organisme financeur de la formation
+- 🏫**École O'clock** – pour l’encadrement pédagogique
+- 👨‍🏫**Formateurs** – pour leur accompagnement tout au long du parcours
+- 🏢**Entreprise Log’s (Laurent C)** – pour m’avoir accordé l’autorisation d’absence
+
 ##  Auteur
 
 **Ismail BILALI Issa Iyawa**  
 Administrateur Systèmes DevOps  
  ismobilal@gmail.com
+ github.com/Bilalismail59
 
 ---
-
